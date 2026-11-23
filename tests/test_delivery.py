@@ -79,6 +79,7 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(deliver_pending_responses(self.path, MAILBOX), {"sent": 2})
             self.assertEqual(deliver_pending_responses(self.path, MAILBOX), {})
         self.assertEqual(self.send.call_count, 2)
+        self.smtp.return_value.login.assert_called_with("robot", "test")
         self.assertEqual(self.smtp.call_args.args, ("smtp.yandex.ru", 465))
         self.assertTrue(self.smtp.call_args.kwargs["context"].check_hostname)
 

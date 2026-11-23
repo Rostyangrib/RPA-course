@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from rpa_course.imap_client import MailError
+from rpa_course.imap_client import MailError, open_inbox
 from rpa_course.intake import receive_inbox
 from rpa_course.storage import initialize_database
 
@@ -59,6 +59,15 @@ class IntakeTests(unittest.TestCase):
         self.enterContext(patch("rpa_course.intake.get_mail_password", return_value="test"))
         self.open_inbox = self.enterContext(patch("rpa_course.intake.open_inbox", return_value=nullcontext(self.inbox)))
         self.sleep = self.enterContext(patch("rpa_course.intake.sleep"))
+
+    def test_imap_login_uses_short_name_for_personal_yandex_address(self):
+        with patch("rpa_course.imap_client.IMAP4_SSL") as imap:
+            connection = imap.return_value
+            connection.select.return_value = ("OK", [b"0"])
+            for address, login in ((ADDRESS, "robot"), ("robot@company.example", "robot@company.example")):
+                with self.subTest(address=address):
+                    with open_inbox(address, "test"):
+                        connection.login.assert_called_with(login, "test")
 
     def test_records_only_new_messages_and_resumes_after_timeout(self):
         self.assertTrue(receive_inbox(self.database, ADDRESS).initialized)

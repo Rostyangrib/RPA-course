@@ -14,6 +14,11 @@ class MailError(ValueError):
     """Ошибка приёма почты, которую можно показать без данных письма."""
 
 
+def mail_login(address: str) -> str:
+    login, _, domain = address.rpartition("@")
+    return login if domain.casefold() == "yandex.ru" else address
+
+
 def get_mail_password(address: str) -> str:
     password = read_windows_credential(address)
     if not password:
@@ -26,7 +31,7 @@ def open_inbox(address: str, password: str):
     connection = IMAP4_SSL(HOST, PORT, ssl_context=ssl.create_default_context(), timeout=MAIL_TIMEOUT)
     try:
         try:
-            connection.login(address, password)
+            connection.login(mail_login(address), password)
         except IMAP4.abort:
             raise
         except IMAP4.error:

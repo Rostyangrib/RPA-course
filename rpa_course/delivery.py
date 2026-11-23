@@ -11,7 +11,7 @@ import smtplib
 import sqlite3
 import ssl
 
-from .imap_client import MAIL_TIMEOUT, get_mail_password
+from .imap_client import MAIL_TIMEOUT, get_mail_password, mail_login
 from .reply import build_reply
 from .storage import pending_responses, reserve_response, set_delivery_status
 
@@ -39,7 +39,7 @@ def send_response(database: sqlite3.Connection, request_id: str, sender: str, pa
     started = False
     try:
         smtp = smtplib.SMTP_SSL("smtp.yandex.ru", 465, context=ssl.create_default_context(), timeout=MAIL_TIMEOUT)
-        smtp.login(sender, password)
+        smtp.login(mail_login(sender), password)
         set_delivery_status(database, request_id, "sending", archive_path=archive)
         started = True
         smtp.send_message(message, from_addr=sender, to_addrs=[recipient])
