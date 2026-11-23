@@ -40,7 +40,7 @@
 
 ## 7. Панель сотрудника — дополнительный этап
 
-- [ ] Сделать журнал обращений с фильтрами по дате и статусу и быстрым доступом к обращениям, требующим проверки.
-- [ ] Добавить карточку обращения с этапами обработки, причиной ошибки, версией прайса и сохранённым ответом.
+- [x] Сделать журнал обращений с фильтрами по дате и статусу и быстрым доступом к обращениям, требующим проверки.
+- [x] Добавить карточку обращения с этапами обработки, причиной ошибки, версией прайса и сохранённым ответом.
 
 Референсы интерфейса — [журнал Primo RPA](https://docs.primo-rpa.ru/ru/orchestrator-new/monitoring-ui4/robot-log), [мониторинг Power Automate](https://learn.microsoft.com/en-us/power-automate/desktop-flows/desktop-flow-activity), [мониторинг UiPath Orchestrator](https://docs.uipath.com/orchestrator/automation-cloud/latest/user-guide/monitoring-processes).

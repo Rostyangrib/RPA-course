@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Журнал обращений — ОфисСнаб</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><span class="mail-icon"></span></span>ОфисСнаб</a>
+      <span class="timezone">Иркутск · UTC+8</span>
+    </div>
+  </header>
+  <main class="shell workspace">
+    <div class="page-heading">
+      <h1>Журнал обращений</h1>
+      <div class="page-actions">
+        <button id="refresh" class="button" type="button"><span class="refresh-icon" aria-hidden="true">↻</span>Обновить</button>
+        <button id="run-start" class="button" type="button" disabled title="Проверить входящие, рассчитать заказы и отправить ответы">Обработать почту</button>
+      </div>
+    </div>
+    <div class="run-info" id="run-info" hidden>
+      <p id="run-status" role="status"></p>
+      <details id="run-log" hidden>
+        <summary>Отчёт запуска</summary>
+        <pre class="message-text" id="run-output"></pre>
+      </details>
+    </div>
+
+    <section class="journal" aria-label="Список обращений">
+      <div class="status-tabs" role="group" aria-label="Быстрые фильтры">
+        <button type="button" data-status="" aria-pressed="true">Все <span data-count="all">—</span></button>
+        <button type="button" data-status="sent" aria-pressed="false">Отправлено <span data-count="sent">—</span></button>
+        <button type="button" data-status="attention" aria-pressed="false">Требуют внимания <span data-count="attention">—</span></button>
+      </div>
+      <form class="filters" id="filters" aria-label="Фильтры журнала">
+        <input class="search" type="search" name="q" placeholder="Поиск по теме, адресу или номеру КП…" aria-label="Поиск по обращениям" maxlength="200">
+        <select name="status" aria-label="Статус">
+          <option value="">Все статусы</option>
+          <option value="attention">Требуют внимания</option>
+          <option value="registered">Зарегистрировано</option>
+          <option value="skipped">Пропущено</option>
+          <option value="sending">Отправка начата</option>
+          <option value="sent">Отправлено</option>
+          <option value="send_unconfirmed">Отправка не подтверждена</option>
+          <option value="needs_review">Требует проверки</option>
+          <option value="error">Ошибка</option>
+        </select>
+        <details id="period" class="period">
+          <summary id="period-trigger" class="button"><span class="calendar-icon" aria-hidden="true"></span>Период</summary>
+          <div class="period-fields">
+            <label>Обновлено с<input type="date" name="from"></label>
+            <label>Обновлено по<input type="date" name="to"></label>
+          </div>
+        </details>
+        <button id="reset" type="reset" class="button" hidden>Сбросить</button>
+      </form>
+
+      <div class="table-wrap" tabindex="0" aria-label="Таблица обращений">
+        <table>
+          <thead><tr><th scope="col">Тема письма</th><th scope="col">Адрес</th><th scope="col">Статус</th><th scope="col">Ответ</th><th scope="col">Сумма</th><th scope="col">Обновлено</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="list-message" role="status">
+        <strong class="empty-title" id="list-title" hidden></strong>
+        <p id="list-text">Загружаем обращения…</p>
+      </div>
+      <footer class="pagination">
+        <span id="range" aria-live="polite"></span>
+        <div><button class="button" id="previous" type="button" disabled>Назад</button><button class="button" id="next" type="button" disabled>Далее</button></div>
+      </footer>
+    </section>
+  </main>
+  <dialog id="detail" aria-labelledby="detail-title">
+    <div class="detail-header">
+      <h2 id="detail-title">Карточка обращения</h2>
+      <form method="dialog"><button class="button" type="submit" autofocus>Закрыть</button></form>
+    </div>
+    <div id="detail-body" class="detail-body"></div>
+  </dialog>
+</body>
+</html>
