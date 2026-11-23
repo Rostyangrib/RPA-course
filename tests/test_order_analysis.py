@@ -1,0 +1,111 @@
+from contextlib import closing
+from dataclasses import replace
+from decimal import Decimal
+import json
+from pathlib import Path
+import sqlite3
+from tempfile import TemporaryDirectory
+import unittest
+from unittest.mock import Mock
+
+from rpa_course.__main__ import DEMO_ORDER
+from rpa_course.gigachat import GigaChatError, GigaChatSetupError
+from rpa_course.mail_message import IncomingMessage
+from rpa_course.order_analysis import analyze_order
+from rpa_course.order_queue import analyze_pending_orders
+from rpa_course.price import load_price
+from rpa_course.storage import get_or_create_inbox_cursor, initialize_database, save_intake_result, save_price_snapshot
+
+
+ROOT = Path(__file__).resolve().parents[1]
+MAILBOX = "robot@example.com"
+
+
+def matched(fragment, sku="P002", quantity=20, unit="шт."):
+    return {"fragment": fragment, "match": "matched", "sku": sku, "quantity": quantity, "unit": unit}
+
+
+def model_result(*positions):
+    return json.dumps({"too_many_positions": False, "positions": positions}, ensure_ascii=False)
+
+
+class OrderAnalysisTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.snapshot = load_price(ROOT / "data/price.xlsx")
+
+    def test_example_uses_catalogue_prices_and_schema(self):
+        complete = Mock(return_value=model_result(
+            matched("Бумага А4 — 5 упаковок", "P001", 5, "упак."),
+            matched("синие ручки — 20 штук"),
+            matched("регистратор А4 75 мм — 3 шт.", "P004", 3),
+        ))
+        result = analyze_order(DEMO_ORDER, self.snapshot.products, complete)
+        self.assertEqual(result.outcome, "quote")
+        self.assertEqual(result.total, Decimal("2790.00"))
+        payload = complete.call_args.args[0]
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        self.assertNotIn("tools", payload)
+        catalog = json.loads(payload["messages"][1]["content"])["catalog"]
+        self.assertTrue(all("price" not in product for product in catalog))
+
+    def test_merges_quantities_and_preserves_cents(self):
+        products = tuple(replace(p, price=Decimal("2.55")) if p.sku == "P002" else p
+                         for p in self.snapshot.products)
+        text = "Синие ручки — 2 шт. и ещё 3 синих ручки."
+        complete = lambda _: model_result(matched("Синие ручки — 2 шт.", quantity=2),
+                                          matched("3 синих ручки", quantity=3))
+        result = analyze_order(text, products, complete)
+        self.assertEqual([line.quantity for line in result.lines], [5])
+        self.assertEqual(str(result.total), "12.75")
+
+    def test_invalid_shape_or_invented_article_gets_one_retry(self):
+        text = "Синие ручки — 20 штук"
+        complete = Mock(side_effect=[model_result(matched(text, sku="fake")), model_result(matched(text))])
+        self.assertEqual(analyze_order(text, self.snapshot.products, complete).outcome, "quote")
+        self.assertEqual(complete.call_count, 2)
+
+        complete = Mock(return_value=model_result(matched(text, quantity=True)))
+        self.assertEqual(analyze_order(text, self.snapshot.products, complete).outcome, "needs_review")
+        self.assertEqual(complete.call_count, 2)
+
+    def test_incomplete_order_does_not_produce_partial_quote(self):
+        text = "Синие ручки — 20 штук, ручки, чёрные ручки, бумага А4 — 5 штук"
+        response = model_result(
+            matched("Синие ручки — 20 штук"),
+            {"fragment": "ручки", "match": "ambiguous"},
+            matched("чёрные ручки", "P003", None),
+            matched("бумага А4 — 5 штук", "P001", 5),
+        )
+        result = analyze_order(text, self.snapshot.products, lambda _: response)
+        self.assertEqual(result.outcome, "clarification")
+        self.assertIsNone(result.total)
+        self.assertFalse(result.lines)
+        self.assertEqual([issue.code for issue in result.issues], ["ambiguous", "missing_quantity", "invalid_unit"])
+
+    def test_queue_uses_one_snapshot_and_does_not_repeat_finished_analysis(self):
+        db_path = Path(self.enterContext(TemporaryDirectory())) / "state.sqlite3"
+        initialize_database(db_path)
+        save_price_snapshot(db_path, self.snapshot)
+        text = "Синие ручки — 20 штук"
+        with closing(sqlite3.connect(db_path)) as db:
+            get_or_create_inbox_cursor(db, MAILBOX, 7, 0)
+            save_intake_result(db, MAILBOX, 7, 1, IncomingMessage("registered", body=text))
+            save_intake_result(db, MAILBOX, 7, 2, IncomingMessage("registered", issue="attachment_only"))
+            save_intake_result(db, MAILBOX, 7, 3, IncomingMessage("registered", body=text))
+
+        reject = Mock(side_effect=GigaChatSetupError("authorization"))
+        with self.assertRaises(GigaChatSetupError):
+            analyze_pending_orders(db_path, MAILBOX, self.snapshot, reject)
+
+        complete = Mock(side_effect=[model_result(matched(text)), GigaChatError("network")])
+        counts = analyze_pending_orders(db_path, MAILBOX, self.snapshot, complete)
+        self.assertEqual(counts, {"quote": 1, "clarification": 1, "error": 1})
+        self.assertEqual(analyze_pending_orders(db_path, MAILBOX, self.snapshot, complete), {})
+        self.assertEqual(complete.call_count, 2)
+
+        with closing(sqlite3.connect(db_path)) as db:
+            snapshots = db.execute("SELECT DISTINCT price_sha256 FROM order_analyses").fetchall()
+            self.assertEqual(snapshots, [(self.snapshot.sha256,)])
+            self.assertEqual(db.execute("SELECT status FROM requests ORDER BY rowid").fetchall(),
+                             [("registered",), ("registered",), ("error",)])

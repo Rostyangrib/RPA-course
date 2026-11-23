@@ -1,0 +1,15 @@
+[paths]
+price_list = "data/price.xlsx"
+state_db = ".runtime/state.sqlite3"
+
+[mail]
+# Укажите адрес отдельного учебного ящика. Пустое значение отключает приём почты.
+address = ""
+
+[gigachat]
+scope = "GIGACHAT_API_PERS"
+model = "GigaChat-2-Pro"
+base_url = "https://api.giga.chat/v1"
+verify_ssl_certs = true
+# Необязательно, если сертификат уже доступен в хранилище Windows.
+ca_bundle_file = "certs/russian_trusted_root_ca_pem.crt"
