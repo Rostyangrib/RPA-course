@@ -1,3 +1,5 @@
+"""Точка входа робота и последовательность этапов обработки заказов."""
+
 import argparse
 from pathlib import Path
 import sqlite3
@@ -18,6 +20,7 @@ DEMO_ORDER = "Бумага А4 — 5 упаковок, синие ручки —
 
 
 def main() -> int:
+    """Читает аргументы запуска и открывает технический журнал для цикла."""
     parser = argparse.ArgumentParser(description="Ручной запуск робота «ОфисСнаб».")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Путь к TOML-файлу.")
     parser.add_argument("--check-gigachat", action="store_true", help="Проверить GigaChat на примере из ТЗ без почты.")
@@ -27,6 +30,7 @@ def main() -> int:
 
 
 def run_cycle(args: argparse.Namespace, journal: CycleJournal) -> int:
+    """Проверяет настройки и прайс, принимает заявки, рассчитывает заказы и отправляет ответы."""
     log = journal.record
     stage, mailbox, exit_code = 'startup', None, 1
     log('cycle', 'started')

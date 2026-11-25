@@ -1,3 +1,5 @@
+"""Подготовка, локальное сохранение и отправка ответных писем через SMTP."""
+
 from collections import Counter
 from contextlib import closing, suppress
 from datetime import datetime, timedelta, timezone
@@ -21,6 +23,7 @@ IRKUTSK = timezone(timedelta(hours=8))
 
 
 def save_archive(path: Path, message: EmailMessage) -> None:
+    """Записывает письмо во временный файл и заменяет им окончательный архив."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     try:
@@ -36,11 +39,13 @@ def save_archive(path: Path, message: EmailMessage) -> None:
 
 def send_response(database: sqlite3.Connection, request_id: str, sender: str, password: str,
                   recipient: str, message: EmailMessage, archive: Path, log: EventRecorder = ignore_event) -> str:
+    """Отправляет письмо одному адресату и сохраняет подтверждённое или неопределённое состояние."""
     smtp = None
     started = False
     try:
         smtp = smtplib.SMTP_SSL("smtp.yandex.ru", 465, context=ssl.create_default_context(), timeout=MAIL_TIMEOUT)
         smtp.login(mail_login(sender), password)
+        # Записываем этап до SMTP, чтобы после обрыва отправка ушла на ручную проверку.
         set_delivery_status(database, request_id, "sending", archive_path=archive)
         log('delivery', 'sending', request_id, None)
         started = True
@@ -73,6 +78,7 @@ def send_response(database: sqlite3.Connection, request_id: str, sender: str, pa
 
 
 def deliver_pending_responses(path: Path, mailbox: str, log: EventRecorder = ignore_event) -> Counter[str]:
+    """Обходит готовые расчёты и уточнения, формирует и архивирует ответы перед отправкой."""
     counts: Counter[str] = Counter()
     with closing(sqlite3.connect(path)) as database:
         database.row_factory = sqlite3.Row

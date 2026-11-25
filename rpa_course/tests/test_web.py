@@ -1,3 +1,5 @@
+"""Проверки API панели, фильтров, чтения прайса и запуска робота."""
+
 from contextlib import closing
 from email.message import EmailMessage
 from http.client import HTTPConnection
@@ -12,20 +14,23 @@ from unittest.mock import patch
 
 from openpyxl import Workbook
 
+from rpa_course.journal import CycleJournal
 from rpa_course.price import HEADERS
 from rpa_course.storage import initialize_database
-from rpa_course.web import PAGE_SIZE, PanelServer, archive_file, list_requests, request_detail, request_row
+from rpa_course.web import PAGE_SIZE, PanelServer, archive_file, list_events, list_requests, request_detail, request_row
 from rpa_course.web_run import RunControl
 
 
 class WebPanelTest(unittest.TestCase):
     def setUp(self):
+        """Создаёт временную SQLite-базу с таблицами для каждого теста панели."""
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.path = Path(directory.name) / "state.sqlite3"
         initialize_database(self.path)
 
     def test_search_uses_irkutsk_date_and_keeps_global_counts(self):
+        """Проверяет поиск, иркутскую дату фильтра и общие счётчики обращений."""
         with closing(sqlite3.connect(self.path)) as database, database:
             database.executemany("INSERT INTO requests VALUES (?, ?, ?)", [
                 ("earlier", "sent", "2026-11-22 15:59:59"),
@@ -42,6 +47,7 @@ class WebPanelTest(unittest.TestCase):
         self.assertIn("некорректный адрес", detail["issues"][0]["message"])
 
     def test_pagination_clamps_to_last_page(self):
+        """Проверяет переход на последнюю страницу при выборе страницы за пределами журнала."""
         with closing(sqlite3.connect(self.path)) as database, database:
             database.executemany("INSERT INTO requests (message_id, status) VALUES (?, 'sent')",
                                  [(str(index),) for index in range(PAGE_SIZE + 1)])
@@ -51,7 +57,33 @@ class WebPanelTest(unittest.TestCase):
         self.assertEqual((last["page"], len(last["items"])), (2, 1))
         self.assertNotIn(last["items"][0]["id"], [item["id"] for item in first["items"]])
 
+    def test_technical_events_pagination_order_and_error_filter(self):
+        """Проверяет сортировку событий, страницы и фильтр только по ошибкам."""
+        path = self.path.with_name('technical.sqlite3')
+        self.assertFalse(list_events(path, {})['ready'])
+        self.assertFalse(path.exists())
+        with CycleJournal(path):
+            pass
+        with closing(sqlite3.connect(path)) as database, database:
+            database.executemany('INSERT INTO events VALUES (?, ?, ?, ?, ?)', [
+                ('2026-11-25 12:34:56', str(index), 'intake', 'registered', None) for index in range(PAGE_SIZE)
+            ])
+            database.executemany('INSERT INTO events VALUES (?, ?, ?, ?, ?)', [
+                ('2026-11-25 12:34:56', 'review', 'delivery', 'needs_review', 'invalid_response'),
+                ('2026-11-25 12:34:56', 'error', 'analysis', 'error', 'gigachat_unavailable'),
+            ])
+        first = list_events(path, {})
+        last = list_events(path, {'page': '10'})
+        errors = list_events(path, {'errors': '1'})
+        self.assertEqual(first['total'], PAGE_SIZE + 2)
+        self.assertEqual(first['items'][0]['request_id'], 'error')
+        self.assertEqual((last['page'], len(last['items'])), (2, 2))
+        self.assertEqual(errors['total'], 1)
+        self.assertEqual(errors['items'][0]['occurred_at'], '2026-11-25T12:34:56Z')
+        self.assertEqual(errors['items'][0]['error_code'], 'gigachat_unavailable')
+
     def test_reply_preview_uses_plain_text_and_archive_is_local(self):
+        """Проверяет текстовый просмотр письма и ограничение скачивания папкой архива."""
         room = self.path.parent / "responses"
         room.mkdir()
         archive = room / "reply.eml"
@@ -74,6 +106,7 @@ class WebPanelTest(unittest.TestCase):
         self.assertIsNone(archive_file(self.path, str(other_file)))
 
     def test_run_starts_once_while_busy_and_reports_robot_errors(self):
+        """Проверяет защиту от двух запусков и передачу ошибок процесса в панель."""
         config = self.path.with_suffix(".toml")
         control = RunControl(config)
         with patch("rpa_course.web_run.Thread") as thread:
@@ -90,6 +123,7 @@ class WebPanelTest(unittest.TestCase):
         self.assertEqual(control.status()["output"], "Прайс загружен.\nОшибка IMAP.")
 
     def test_price_reads_configured_workbook_on_each_request(self):
+        """Проверяет перечитывание изменённого Excel и обработку отсутствующего файла."""
         price_path = self.path.with_suffix(".xlsx")
         workbook = Workbook()
         sheet = workbook.active

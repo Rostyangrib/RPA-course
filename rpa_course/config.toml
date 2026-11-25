@@ -1,3 +1,4 @@
+# Настройки робота. Пути к файлам считаются относительно этого TOML.
 [paths]
 price_list = "data/price.xlsx"
 state_db = ".runtime/state.sqlite3"

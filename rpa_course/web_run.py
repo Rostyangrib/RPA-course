@@ -1,4 +1,4 @@
-"""Запуск штатного цикла робота из локальной панели."""
+"""Фоновый запуск штатного цикла робота и передача его результата в веб-панель."""
 
 from pathlib import Path
 import subprocess
@@ -9,16 +9,20 @@ from .journal import CycleJournal, JOURNAL_PATH, notify_employee
 
 
 class RunControl:
+    """Управляет одним активным процессом робота и хранит состояние последнего запуска."""
     def __init__(self, config: Path | None, note: str = ""):
+        """Настраивает источник конфигурации, блокировку и начальное состояние запуска."""
         self.config = config
         self.lock = Lock()
         self.result = {"state": "idle" if config else "disabled", "output": "", "note": note}
 
     def status(self) -> dict:
+        """Возвращает копию состояния под блокировкой для безопасного чтения из панели."""
         with self.lock:
             return self.result.copy()
 
     def start(self) -> dict:
+        """Запускает рабочий поток при свободном роботе и возвращает текущее состояние."""
         with self.lock:
             if self.result["state"] not in ("disabled", "running"):
                 self.result.update(state="running", output="")
@@ -26,6 +30,7 @@ class RunControl:
             return self.result.copy()
 
     def run(self):
+        """Вызывает штатный цикл как процесс и сохраняет вывод или ошибку его запуска."""
         try:
             process = subprocess.run(
                 [sys.executable, "-X", "utf8", "-m", "rpa_course", "--config", str(self.config)],

@@ -1,3 +1,5 @@
+"""Сопоставление позиций через GigaChat, валидация ответа и расчёт по Excel."""
+
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from decimal import Decimal, ROUND_HALF_UP, localcontext
@@ -31,6 +33,7 @@ ambiguous, если подходит несколько товаров, not_foun
 
 
 def object_schema(properties: dict, required: list[str]) -> dict:
+    """Создаёт JSON-схему объекта с заданными полями и без дополнительных ключей."""
     return {"type": "object", "properties": properties, "required": required, "additionalProperties": False}
 
 
@@ -55,12 +58,14 @@ RESPONSE_FORMAT = {
 
 @dataclass(frozen=True)
 class Issue:
+    """Хранит код причины уточнения или ошибки и связанный с ней фрагмент письма."""
     code: str
     fragment: str = ""
 
 
 @dataclass(frozen=True)
 class QuoteLine:
+    """Хранит строку расчёта с артикулом, количеством, ценой и суммой."""
     sku: str
     name: str
     quantity: int
@@ -71,16 +76,19 @@ class QuoteLine:
 
 @dataclass(frozen=True)
 class OrderAnalysis:
+    """Объединяет итог обработки заказа, позиции расчёта и причины уточнения."""
     outcome: str
     issues: tuple[Issue, ...] = ()
     lines: tuple[QuoteLine, ...] = ()
     total: Decimal | None = None
 
     def to_json(self) -> str:
+        """Сериализует результат для SQLite, сохраняя денежные значения строками."""
         return json.dumps(asdict(self), ensure_ascii=False, default=str)
 
 
 def analyze_order(text: str, products: tuple[Product, ...], complete: Callable[[dict], str]) -> OrderAnalysis:
+    """Проверяет язык и позиции, вызывает GigaChat и даёт один повтор при некорректном ответе."""
     if not is_russian(text, products):
         return OrderAnalysis('clarification', (Issue('russian_required'),))
     items = order_items(text)
@@ -114,6 +122,7 @@ def analyze_order(text: str, products: tuple[Product, ...], complete: Callable[[
 
 
 def validate_and_calculate(raw: str, items: list[str], products: dict[str, Product]) -> OrderAnalysis:
+    """Сверяет ID, фрагменты, количество и единицы с исходным заказом перед расчётом."""
     try:
         data = json.loads(raw)
     except (ValueError, TypeError, RecursionError):
@@ -125,6 +134,7 @@ def validate_and_calculate(raw: str, items: list[str], products: dict[str, Produ
         raise InvalidModelResponse
     if data["too_many_positions"] and not positions:
         return OrderAnalysis("clarification", (Issue("too_many_positions"),))
+    # Сверка числа строк и каждого ID ниже защищает от частичного КП при пропуске позиции.
     if data["too_many_positions"] or len(positions) != len(items):
         raise InvalidModelResponse
 
@@ -170,6 +180,7 @@ def validate_and_calculate(raw: str, items: list[str], products: dict[str, Produ
 
 
 def calculate_quote(quantities: dict[str, int], products: dict[str, Product]) -> OrderAnalysis:
+    """Рассчитывает суммы по ценам сохранённого прайса с помощью Decimal."""
     lines = []
     with localcontext() as context:
         # Цена из Excel может иметь много целых разрядов. Оставляем запас для количества и суммы.

@@ -1,3 +1,5 @@
+"""Локальная проверка языка и выделение строк заказа перед вызовом модели."""
+
 import re
 
 from langdetect import DetectorFactory, detect
@@ -19,11 +21,13 @@ INTRO = re.compile(
 OUTRO = re.compile(r'(?:[.,!;]|\n)\s*(?:(?:заранее\s+)?спасибо\s*[.!]*\s*$|с уважением\b[\s\S]*$)', re.IGNORECASE)
 SEPARATOR = re.compile(r'[,;\n]+|[ \t]+и[ \t]+(?:ещ[её][ \t]+)?', re.IGNORECASE)
 AMOUNT = re.compile(r'(?<![\d.,])([-−]?\d+(?:[.,]\d+)?)\s*(шт|штук[аи]?|уп|упак|упаков(?:ок|ки|ка)|единиц[аы]?)\b', re.IGNORECASE)
+AMOUNT_ONLY = re.compile(rf'{AMOUNT.pattern}[. \t]*(?=[,;\n]|$)', re.IGNORECASE)
 SPECIFICATION = re.compile(r'(?<![\w.,])\s*\d+(?:[.,]\d+)?\s*(?:мм|см|мкм|мл|лист(?:а|ов)?)\b', re.IGNORECASE)
 UNSEPARATED_AMOUNTS = re.compile(r'(?<![\w.,])\d+(?:\s+[а-яё]{2,})+\s+\d+(?![\w.,])', re.IGNORECASE)
 
 
 def is_russian(text: str, products: tuple[Product, ...]) -> bool:
+    """Определяет язык письма и проверяет короткие наименования по словарю прайса."""
     words = {word.casefold() for word in WORD.findall(text)}
     if not any(RUSSIAN_WORD.fullmatch(word) for word in words - ORDER_WORDS):
         return False
@@ -40,6 +44,7 @@ def is_russian(text: str, products: tuple[Product, ...]) -> bool:
 
 
 def order_items(text: str) -> list[str] | None:
+    """Разделяет текст на позиции, сохраняя характеристики товара и переносы перед количеством."""
     text = OUTRO.split(INTRO.sub('', text), maxsplit=1)[0].strip()
     parts = []
     start = 0
@@ -52,13 +57,16 @@ def order_items(text: str) -> list[str] | None:
             quantity_after_comma = AMOUNT.match(after.lstrip()) and not AMOUNT.search(before)
             if decimal_comma or quantity_after_comma or SPECIFICATION.match(after):
                 continue
+        # Одиночное количество после переноса может продолжать предыдущую позицию.
+        if mark == '\n' and before and AMOUNT_ONLY.match(after.lstrip(' \t')) and not AMOUNT.search(before):
+            continue
         if mark.strip().casefold() == 'и' and not (AMOUNT.search(before) or re.match(r'\d+\s', after.lstrip())):
             return None
         if before:
-            parts.append(before)
+            parts.append(' '.join(before.split()))
         start = separator.end()
     if text[start:].strip():
-        parts.append(text[start:].strip())
+        parts.append(' '.join(text[start:].split()))
     if any(len(AMOUNT.findall(part)) > 1 or ' / ' in part or UNSEPARATED_AMOUNTS.search(SPECIFICATION.sub('', part))
            for part in parts):
         return None

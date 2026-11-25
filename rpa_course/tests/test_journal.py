@@ -1,3 +1,5 @@
+"""Проверки технического журнала, срока хранения и сводных уведомлений."""
+
 from argparse import Namespace
 from contextlib import closing, redirect_stderr
 from io import StringIO
@@ -16,16 +18,19 @@ MAIL = {'RPA_NOTIFY_FROM': 'robot@yandex.ru', 'RPA_NOTIFY_TO': 'employee@example
 
 class JournalTests(unittest.TestCase):
     def setUp(self):
+        """Создаёт временный журнал и подменяет чтение пароля и SMTP для уведомлений."""
         self.path = Path(self.enterContext(TemporaryDirectory())) / 'technical.sqlite3'
         self.enterContext(redirect_stderr(StringIO()))
         self.password = self.enterContext(patch('rpa_course.journal.get_mail_password', return_value='test-password'))
         self.smtp = self.enterContext(patch('rpa_course.journal.smtplib.SMTP_SSL'))
 
     def events(self):
+        """Возвращает этапы, статусы и коды ошибок из тестового журнала."""
         with closing(sqlite3.connect(self.path)) as database:
             return database.execute('SELECT stage, status, error_code FROM events ORDER BY rowid').fetchall()
 
     def test_retention_and_minimal_schema(self):
+        """Проверяет пять полей журнала и удаление записей старше 30 дней."""
         with CycleJournal(self.path) as journal:
             journal.record('price', 'loaded')
         with closing(sqlite3.connect(self.path)) as database, database:
@@ -37,6 +42,7 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(self.events(), [('price', 'loaded', None)])
 
     def test_startup_error_is_logged_even_when_smtp_fails(self):
+        """Проверяет, что ошибка конфигурации и отказ уведомления остаются в журнале."""
         args = Namespace(config=self.path.with_suffix('.toml'), check_gigachat=False)
         args.config.write_text('[invalid', encoding='utf-8')
         self.smtp.side_effect = OSError
@@ -47,6 +53,7 @@ class JournalTests(unittest.TestCase):
         self.assertIn(('notification', 'error', 'OSError'), self.events())
 
     def test_sends_one_summary_only_for_alerts(self):
+        """Проверяет одну сводку по проблемным событиям и отсутствие писем при штатном уточнении."""
         with patch.dict('os.environ', MAIL), CycleJournal(self.path) as journal:
             journal.record('analysis', 'clarification', 'a')
             notify_employee(journal)

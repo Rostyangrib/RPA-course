@@ -1,3 +1,5 @@
+"""Проверки IMAP-входа, отбора новых писем и восстановления приёма."""
+
 from contextlib import closing, nullcontext
 from email.message import EmailMessage
 from pathlib import Path
@@ -15,6 +17,7 @@ ADDRESS = "robot@yandex.ru"
 
 
 def email_bytes(subject: str, body: str = "Бумага А4 — 5 упаковок.") -> bytes:
+    """Формирует тестовое MIME-письмо для имитации входящих."""
     message = EmailMessage()
     message["From"] = "Клиент <customer@example.com>"
     message["Subject"] = subject
@@ -24,6 +27,7 @@ def email_bytes(subject: str, body: str = "Бумага А4 — 5 упаково
 
 class FakeInbox:
     def __init__(self):
+        """Сохраняет тестовые письма и настройки имитированного IMAP-ящика."""
         self.validity = 7
         self.last_uid = 40
         self.messages = {40: email_bytes("Расчёт заказа")}
@@ -31,10 +35,12 @@ class FakeInbox:
         self.fail_once = None
 
     def response(self, name):
+        """Возвращает подставленные значения версии папки и следующего UID."""
         value = self.validity if name == "UIDVALIDITY" else self.last_uid + 1
         return name, [str(value).encode("ascii")]
 
     def uid(self, command, *args):
+        """Имитирует поиск, чтение письма и временный сбой по заданному UID."""
         if command == "SEARCH":
             _, criterion, uid_range = args
             assert criterion == "UID"
@@ -52,6 +58,7 @@ class FakeInbox:
 
 class IntakeTests(unittest.TestCase):
     def setUp(self):
+        """Создаёт тестовую базу и подменяет почтовый ящик, пароль и ожидание повтора."""
         directory = self.enterContext(TemporaryDirectory())
         self.database = Path(directory) / "state.sqlite3"
         initialize_database(self.database)
@@ -61,6 +68,7 @@ class IntakeTests(unittest.TestCase):
         self.sleep = self.enterContext(patch("rpa_course.intake.sleep"))
 
     def test_imap_login_uses_short_name_for_personal_yandex_address(self):
+        """Проверяет логины личных ящиков Яндекса и ящиков с другими доменами."""
         with patch("rpa_course.imap_client.IMAP4_SSL") as imap:
             connection = imap.return_value
             connection.select.return_value = ("OK", [b"0"])
@@ -70,6 +78,7 @@ class IntakeTests(unittest.TestCase):
                         connection.login.assert_called_with(login, "test")
 
     def test_records_only_new_messages_and_resumes_after_timeout(self):
+        """Проверяет начальную границу, приём новых заявок и восстановление после тайм-аута."""
         self.assertTrue(receive_inbox(self.database, ADDRESS).initialized)
         self.assertEqual(self.inbox.fetched, [])
 
@@ -91,6 +100,7 @@ class IntakeTests(unittest.TestCase):
                              [("Бумага", None), (None, "body_too_long")])
 
     def test_stops_if_imap_identifiers_change(self):
+        """Проверяет остановку при изменении версии папки, когда старые UID недостоверны."""
         receive_inbox(self.database, ADDRESS)
         self.inbox.validity += 1
         with self.assertRaisesRegex(MailError, "изменила идентификаторы"):
@@ -98,6 +108,7 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(self.inbox.fetched, [])
 
     def test_retries_network_error_but_not_authentication_rejection(self):
+        """Проверяет повтор подключения при сетевом сбое и прекращение попыток при неверном пароле."""
         self.open_inbox.side_effect = TimeoutError
         with self.assertRaisesRegex(MailError, "после трёх попыток"):
             receive_inbox(self.database, ADDRESS)

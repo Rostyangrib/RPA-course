@@ -1,3 +1,5 @@
+"""Проверки архивирования, отправки писем и восстановления после обрывов SMTP."""
+
 from contextlib import closing
 from datetime import datetime
 from email import policy
@@ -36,6 +38,7 @@ QUOTE = {
 
 class DeliveryTests(unittest.TestCase):
     def setUp(self):
+        """Создаёт тестовую базу и подменяет SMTP, пароль и время формирования письма."""
         self.root = Path(self.enterContext(TemporaryDirectory()))
         self.path = self.root / "state.sqlite3"
         initialize_database(self.path)
@@ -48,6 +51,7 @@ class DeliveryTests(unittest.TestCase):
         self.enterContext(patch("rpa_course.delivery.datetime")).now.return_value = NOW
 
     def enqueue(self, uid, kind="quote", result=QUOTE):
+        """Добавляет в тестовую базу заявку и заранее подготовленный результат анализа."""
         with closing(sqlite3.connect(self.path)) as db:
             get_or_create_inbox_cursor(db, MAILBOX, 11, 0)
             save_intake_result(db, MAILBOX, 11, uid, IncomingMessage(
@@ -58,6 +62,7 @@ class DeliveryTests(unittest.TestCase):
             save_order_analysis(db, request_id, self.price_sha256, kind, json.dumps(result))
 
     def statuses(self):
+        """Читает сохраняемые статусы обращений для сравнения с ожидаемыми."""
         with closing(sqlite3.connect(self.path)) as db:
             return db.execute("""
                 SELECT r.status, p.error_code FROM requests r LEFT JOIN responses p ON p.request_id = r.message_id
@@ -65,10 +70,12 @@ class DeliveryTests(unittest.TestCase):
             """).fetchall()
 
     def test_archives_quotes_before_sending_once_in_original_thread(self):
+        """Проверяет наличие архива до отправки, исходную цепочку и отсутствие повторов."""
         self.enqueue(1)
         self.enqueue(2)
 
         def check_archive(message, *, from_addr, to_addrs):
+            """Проверяет архив и статус непосредственно в момент имитированной отправки."""
             self.assertEqual((from_addr, to_addrs), (MAILBOX, [CLIENT]))
             self.assertIn(("sending", None), self.statuses())
             archives = list((self.root / "responses").glob("*.eml"))
@@ -97,6 +104,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertFalse(list(message.iter_attachments()))
 
     def test_uncertain_clarification_is_safe_html_and_is_not_retried(self):
+        """Проверяет экранирование текста уточнения и отсутствие повтора при неизвестном исходе."""
         self.enqueue(1, "clarification", {"issues": [{"fragment": "<неизвестный & товар>", "code": "not_found"}]})
         self.send.side_effect = SMTPServerDisconnected()
         self.assertEqual(deliver_pending_responses(self.path, MAILBOX), {"send_unconfirmed": 1})
@@ -108,6 +116,7 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn("полный перечень товаров", message.get_body(("plain",)).get_content())
 
     def test_recovers_crash_between_send_and_confirmation(self):
+        """Проверяет восстановление статуса после остановки между передачей письма и подтверждением."""
         self.enqueue(1)
         self.send.side_effect = KeyboardInterrupt
         with lock_cycle(self.path):
@@ -123,6 +132,7 @@ class DeliveryTests(unittest.TestCase):
         self.send.assert_called_once()
 
     def test_archive_failure_prevents_transmission(self):
+        """Проверяет перевод на ручную проверку при ошибке сохранения письма."""
         self.enqueue(1)
         with patch("rpa_course.delivery.save_archive", side_effect=PermissionError):
             self.assertEqual(deliver_pending_responses(self.path, MAILBOX), {"needs_review": 1})
@@ -130,6 +140,7 @@ class DeliveryTests(unittest.TestCase):
         self.smtp.assert_not_called()
 
     def test_authentication_rejection_stops_the_cycle(self):
+        """Проверяет завершение цикла при отказе SMTP в авторизации."""
         self.enqueue(1)
         self.enqueue(2)
         self.smtp.return_value.login.side_effect = SMTPAuthenticationError(535, b"test")

@@ -1,4 +1,4 @@
-"""Локальная панель сотрудника для запуска робота и просмотра обращений."""
+"""Локальная HTTP-панель сотрудника и API обращений, прайса и технических событий."""
 
 import argparse
 from contextlib import closing, contextmanager
@@ -13,6 +13,7 @@ import sqlite3
 from urllib.parse import parse_qs, quote, urlsplit
 
 from .config import DEFAULT_CONFIG, load_config
+from .journal import JOURNAL_PATH
 from .price import PriceError, load_price
 from .reply import REASONS as CLARIFICATION_REASONS
 from .web_run import RunControl
@@ -22,7 +23,9 @@ ASSETS = Path(__file__).with_name("web_assets")
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/price": ("index.html", "text/html; charset=utf-8"),
+    "/technical-journal": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/lada-logo.png": ("lada-logo.png", "image/png"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 PAGE_SIZE = 20
@@ -53,11 +56,13 @@ REQUESTS = """
 
 
 def fold(text: str | None) -> str:
+    """Приводит текст к одному регистру и приравнивает ё к е для поиска."""
     return (text or "").casefold().replace("ё", "е")
 
 
 @contextmanager
 def read_database(path: Path):
+    """Открывает SQLite только на чтение и фиксирует согласованный снимок данных."""
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as database:
         database.row_factory = sqlite3.Row
         database.create_function("fold", 1, fold)
@@ -66,6 +71,7 @@ def read_database(path: Path):
 
 
 def list_requests(path: Path, filters: dict[str, str]) -> dict:
+    """Фильтрует обращения, считает статусы и возвращает выбранную страницу."""
     clauses, values = [], []
     status = filters.get("status", "")
     if status == "attention":
@@ -114,7 +120,28 @@ def list_requests(path: Path, filters: dict[str, str]) -> dict:
     return result
 
 
+def list_events(path: Path, filters: dict[str, str]) -> dict:
+    """Возвращает страницу технических событий с возможностью выбрать только ошибки."""
+    page = max(1, int(filters.get("page", "1")))
+    result = {"items": [], "total": 0, "page": 1, "page_size": PAGE_SIZE, "ready": path.is_file()}
+    if not result["ready"]:
+        return result
+
+    where = " WHERE status = 'error'" if filters.get("errors") == "1" else ""
+    with read_database(path) as database:
+        total = database.execute("SELECT count(*) FROM events" + where).fetchone()[0]
+        page = min(page, max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE))
+        rows = database.execute("""
+            SELECT replace(occurred_at, ' ', 'T') || 'Z' AS occurred_at, request_id, stage, status, error_code
+            FROM events
+        """ + where + " ORDER BY occurred_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                                (PAGE_SIZE, (page - 1) * PAGE_SIZE)).fetchall()
+    result.update(items=[dict(row) for row in rows], total=total, page=page)
+    return result
+
+
 def archive_file(path: Path, stored: str | None) -> Path | None:
+    """Проверяет, что скачиваемый EML существует и находится в папке архива базы."""
     if not stored:
         return None
     root = path.resolve().parent / "responses"
@@ -125,6 +152,7 @@ def archive_file(path: Path, stored: str | None) -> Path | None:
 
 
 def request_row(path: Path, request_id: str) -> sqlite3.Row | None:
+    """Находит обращение по ID и объединяет сведения о письме, анализе и отправке."""
     if path.is_file():
         with read_database(path) as database:
             return database.execute("""
@@ -137,6 +165,7 @@ def request_row(path: Path, request_id: str) -> sqlite3.Row | None:
 
 
 def request_detail(path: Path, row: sqlite3.Row) -> dict:
+    """Подготавливает для карточки расчёт, причины и текстовую часть архивного письма."""
     result = dict(row)
     calculation = json.loads(result.pop("result_json") or "{}")
     issues = calculation.get("issues", [])
@@ -157,8 +186,10 @@ def request_detail(path: Path, row: sqlite3.Row) -> dict:
 
 
 class PanelServer(ThreadingHTTPServer):
+    """Связывает HTTP-обработчик с путями к базе и прайсу и управлением запуска."""
     def __init__(self, database: Path, port: int, run_control: RunControl, price_list: Path | None = None,
                  host: str = "127.0.0.1"):
+        """Подключает обработчик панели и открывает заданный локальный адрес и порт."""
         self.database = database
         self.run_control = run_control
         self.price_list = price_list
@@ -166,11 +197,14 @@ class PanelServer(ThreadingHTTPServer):
 
 
 class PanelHandler(BaseHTTPRequestHandler):
+    """Обрабатывает HTTP-запросы панели и защищает запуск цикла проверкой источника."""
     def log_message(self, format, *args):
         # Параметры интерфейса могут содержать тему письма и адрес клиента.
+        """Подавляет стандартный журнал HTTP, чтобы темы и адреса из URL не записывались."""
         pass
 
     def respond(self, status: int, content: bytes, mime: str, filename: str | None = None):
+        """Возвращает тело ответа с нужным MIME-типом и заголовками безопасности."""
         self.send_response(status)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(len(content)))
@@ -184,9 +218,11 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def json_response(self, value: dict, status: int = 200):
+        """Сериализует объект API в JSON в кодировке UTF-8."""
         self.respond(status, json.dumps(value, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
 
     def panel_origin(self) -> str | None:
+        """Проверяет адрес Host и возвращает допустимый источник локального запроса."""
         port = self.server.server_port
         host = self.headers.get("Host", "").lower()
         if host in (f"127.0.0.1:{port}", f"localhost:{port}"):
@@ -194,6 +230,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         return None
 
     def do_POST(self):
+        """Принимает команду запуска робота из локальной панели."""
         origin = self.panel_origin()
         if not origin or self.headers.get("Origin") != origin:
             self.json_response({"error": "Запустите обработку из локальной панели."}, 403)
@@ -204,6 +241,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             self.json_response(result, 202 if result["state"] == "running" else 409)
 
     def do_GET(self):
+        """Возвращает страницы, записи API или архив ответа в зависимости от маршрута."""
         if not self.panel_origin():
             self.json_response({"error": "Панель доступна на этом компьютере."}, 403)
             return
@@ -217,6 +255,9 @@ class PanelHandler(BaseHTTPRequestHandler):
             path = self.server.database
             if url.path == "/api/requests":
                 self.json_response(list_requests(path, filters))
+                return
+            if url.path == "/api/events":
+                self.json_response(list_events(JOURNAL_PATH, filters))
                 return
             if url.path == "/api/run":
                 self.json_response(self.server.run_control.status())
@@ -250,6 +291,7 @@ class PanelHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    """Читает настройки панели и запускает HTTP-сервер для выбранной базы."""
     parser = argparse.ArgumentParser(description="Локальный журнал обращений «ОфисСнаб».")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="TOML-файл с настройками робота.")

@@ -1,4 +1,5 @@
 <!doctype html>
+<!-- Разметка журнала обращений, прайса, технических событий и карточки запроса. -->
 <html lang="ru">
 <head>
   <meta charset="utf-8">
@@ -11,10 +12,11 @@
 <body>
   <header class="topbar">
     <div class="shell topbar-inner">
-      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><span class="mail-icon"></span></span>ОфисСнаб</a>
+      <a class="brand" href="/"><img class="brand-mark" src="/lada-logo.png" width="32" height="32" alt="">OnlyFans</a>
       <nav class="status-tabs page-tabs" aria-label="Разделы панели">
         <a id="journal-tab" href="/" aria-current="page">Журнал обращений</a>
         <a id="price-tab" href="/price">Прайс-лист</a>
+        <a id="events-tab" href="/technical-journal">Технический журнал</a>
       </nav>
       <span class="timezone">Иркутск · UTC+8</span>
     </div>
@@ -93,6 +95,26 @@
     </div>
     <p id="price-message" class="empty" role="status">Загружаем прайс-лист…</p>
     <footer class="pagination" id="price-count" aria-live="polite" hidden></footer>
+  </main>
+  <main class="shell workspace" id="events-view" hidden>
+    <div class="page-heading">
+      <h1>Технический журнал</h1>
+      <button id="events-refresh" class="button" type="button"><span class="refresh-icon" aria-hidden="true">↻</span>Обновить</button>
+    </div>
+    <div class="filters">
+      <label class="event-filter"><input id="only-errors" type="checkbox">Только ошибки</label>
+    </div>
+    <div class="table-wrap" tabindex="0" aria-label="Таблица событий">
+      <table class="events-table">
+        <thead><tr><th scope="col">Время</th><th scope="col">ID обращения</th><th scope="col">Этап</th><th scope="col">Статус</th><th scope="col">Код ошибки</th></tr></thead>
+        <tbody id="events-rows"></tbody>
+      </table>
+    </div>
+    <p id="events-message" class="empty" role="status">Загружаем события…</p>
+    <footer class="pagination">
+      <span id="events-range" aria-live="polite"></span>
+      <div><button id="events-previous" class="button" type="button" disabled>Назад</button><button id="events-next" class="button" type="button" disabled>Далее</button></div>
+    </footer>
   </main>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="detail-header">

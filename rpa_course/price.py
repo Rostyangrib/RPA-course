@@ -1,3 +1,5 @@
+"""Загрузка, проверка и контрольная сумма учебного Excel-прайса."""
+
 from contextlib import closing
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -24,6 +26,7 @@ class PriceError(ValueError):
 
 @dataclass(frozen=True)
 class Product:
+    """Представляет одну строку Excel с артикулом, характеристиками, единицей и ценой."""
     sku: str
     name: str
     description: str
@@ -34,12 +37,14 @@ class Product:
 
 @dataclass(frozen=True)
 class PriceSnapshot:
+    """Хранит единую для цикла версию прайса, его контрольную сумму и товары."""
     sha256: str
     products: tuple[Product, ...]
     content: bytes = field(repr=False)
 
 
 def load_price(path: Path) -> PriceSnapshot:
+    """Загружает Excel в память, проверяет лист Прайс и создаёт снимок для расчётов."""
     if path.suffix.lower() != ".xlsx":
         raise PriceError(f"Укажите прайс-лист в формате .xlsx: {path}")
 
@@ -60,6 +65,7 @@ def load_price(path: Path) -> PriceSnapshot:
 
 
 def check_workbook_contents(content: bytes) -> None:
+    """Проверяет содержимое XLSX на макросы, формулы и внешние ссылки."""
     with ZipFile(BytesIO(content)) as archive:
         content_types = archive.read("[Content_Types].xml").lower()
         if b"macroenabled" in content_types or b"vbaproject" in content_types:
@@ -81,6 +87,7 @@ def check_workbook_contents(content: bytes) -> None:
 
 
 def read_products(rows) -> tuple[Product, ...]:
+    """Проверяет заголовки и строки Excel и собирает товары с уникальными артикулами."""
     header = tuple(cell.value for cell in next(rows, ()))
     if header[:len(HEADERS)] != HEADERS or any(value is not None for value in header[len(HEADERS):]):
         raise PriceError(f"Ожидаются столбцы в таком порядке: {', '.join(HEADERS)}.")
@@ -108,6 +115,7 @@ def read_products(rows) -> tuple[Product, ...]:
 
 
 def parse_product(values: tuple, row: int) -> Product:
+    """Проверяет поля одной строки Excel и преобразует цену в Decimal."""
     sku, name, description, synonyms, unit, value = values
     if type(sku) is int:
         sku = str(sku)

@@ -1,3 +1,5 @@
+"""Расчёт зарегистрированных заявок и сохранение результатов по снимку прайса."""
+
 from collections import Counter
 from collections.abc import Callable
 from contextlib import closing
@@ -15,6 +17,7 @@ def analyze_pending_orders(
     database_path: Path, mailbox: str, snapshot: PriceSnapshot, complete: Callable[[dict], str],
     log: EventRecorder = ignore_event,
 ) -> Counter[str]:
+    """Обрабатывает заявки без результата, сохраняет расчёт или причину и пишет события."""
     counts: Counter[str] = Counter()
     with closing(sqlite3.connect(database_path)) as database:
         database.execute("PRAGMA foreign_keys = ON")

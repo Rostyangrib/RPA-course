@@ -1,3 +1,5 @@
+"""Защищённое подключение к Яндекс Почте и чтение писем по IMAP."""
+
 from contextlib import contextmanager, suppress
 from imaplib import IMAP4, IMAP4_SSL
 import ssl
@@ -15,11 +17,13 @@ class MailError(ValueError):
 
 
 def mail_login(address: str) -> str:
+    """Возвращает короткий логин для личного ящика Яндекса и полный адрес для остальных."""
     login, _, domain = address.rpartition("@")
     return login if domain.casefold() == "yandex.ru" else address
 
 
 def get_mail_password(address: str) -> str:
+    """Загружает пароль приложения из переменной окружения или хранилища Windows."""
     password = read_credential(address, "RPA_MAIL_PASSWORD")
     if not password:
         raise MailError("Укажите пароль приложения Яндекс Почты в RPA_MAIL_PASSWORD или хранилище Windows.")
@@ -28,6 +32,7 @@ def get_mail_password(address: str) -> str:
 
 @contextmanager
 def open_inbox(address: str, password: str):
+    """Открывает Входящие только для чтения и закрывает соединение при выходе."""
     connection = IMAP4_SSL(HOST, PORT, ssl_context=ssl.create_default_context(), timeout=MAIL_TIMEOUT)
     try:
         try:
@@ -48,6 +53,7 @@ def open_inbox(address: str, password: str):
 
 
 def inbox_bounds(connection: IMAP4_SSL) -> tuple[int, int]:
+    """Возвращает версию папки и верхний UID для текущей проверки входящих."""
     values = []
     for name in ("UIDVALIDITY", "UIDNEXT"):
         data = connection.response(name)[1]
@@ -59,6 +65,7 @@ def inbox_bounds(connection: IMAP4_SSL) -> tuple[int, int]:
 
 
 def search_uids(connection: IMAP4_SSL, after_uid: int, through_uid: int) -> list[int]:
+    """Находит UID новых писем между сохранённой позицией и границей текущего цикла."""
     if after_uid >= through_uid:
         return []
     status, data = connection.uid("SEARCH", None, "UID", f"{after_uid + 1}:{through_uid}")
@@ -71,6 +78,7 @@ def search_uids(connection: IMAP4_SSL, after_uid: int, through_uid: int) -> list
 
 
 def fetch_message(connection: IMAP4_SSL, uid: int) -> bytes | None:
+    """Читает полное письмо по UID без отметки о прочтении."""
     status, data = connection.uid("FETCH", str(uid), "(BODY.PEEK[])")
     if status != "OK":
         raise MailError("Не удалось прочитать письмо через IMAP.")

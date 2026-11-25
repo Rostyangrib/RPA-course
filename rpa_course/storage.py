@@ -1,3 +1,5 @@
+"""SQLite-схема, очередь заявок, снимки цен и состояния ответных писем."""
+
 from contextlib import closing, contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +11,7 @@ from .price import PriceSnapshot
 
 
 def initialize_database(path: Path) -> None:
+    """Создаёт таблицы состояний, прайса, входящих, расчётов и ответов."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path)) as database:
         database.executescript("""
@@ -59,6 +62,7 @@ def initialize_database(path: Path) -> None:
 
 
 def save_price_snapshot(path: Path, snapshot: PriceSnapshot) -> None:
+    """Сохраняет снимок Excel по контрольной сумме без дублирования одинаковых версий."""
     with closing(sqlite3.connect(path)) as database, database:
         database.execute(
             "INSERT INTO price_snapshots (sha256, content) VALUES (?, ?) ON CONFLICT(sha256) DO NOTHING",
@@ -69,6 +73,7 @@ def save_price_snapshot(path: Path, snapshot: PriceSnapshot) -> None:
 def get_or_create_inbox_cursor(
     database: sqlite3.Connection, mailbox: str, uid_validity: int, last_uid: int
 ) -> tuple[int, int, bool]:
+    """Возвращает сохранённую позицию IMAP или фиксирует границу при первом запуске."""
     with database:
         inserted = database.execute(
             "INSERT INTO inbox_cursors VALUES (?, ?, ?) ON CONFLICT(mailbox) DO NOTHING",
@@ -88,9 +93,11 @@ def save_intake_result(
     message: IncomingMessage | None,
     log: EventRecorder = ignore_event,
 ) -> bool:
+    """Одной транзакцией регистрирует письмо и продвигает позицию чтения IMAP."""
     inserted = 0
     with database:
         if message is not None:
+            # UID может повториться после смены UIDVALIDITY, поэтому храним обе части.
             request_id = f"{mailbox}:{uid_validity}:{uid}"
             inserted = database.execute(
                 "INSERT INTO requests (message_id, status) VALUES (?, ?) ON CONFLICT(message_id) DO NOTHING",
@@ -114,6 +121,7 @@ def save_intake_result(
 
 
 def pending_orders(database: sqlite3.Connection, mailbox: str) -> list[tuple[str, str | None, str | None]]:
+    """Выбирает зарегистрированные обращения без результата анализа в порядке их приёма."""
     prefix = f"{mailbox.casefold()}:"
     return database.execute(
         """SELECT r.message_id, m.body, m.issue
@@ -128,6 +136,7 @@ def pending_orders(database: sqlite3.Connection, mailbox: str) -> list[tuple[str
 def save_order_analysis(
     database: sqlite3.Connection, request_id: str, price_sha256: str, outcome: str, result_json: str
 ) -> bool:
+    """Записывает результат с версией прайса и меняет статус при ошибке или ручной проверке."""
     with database:
         inserted = database.execute(
             """INSERT INTO order_analyses (request_id, price_sha256, outcome, result_json)
@@ -146,6 +155,7 @@ def save_order_analysis(
 @contextmanager
 def lock_cycle(path: Path):
     # Отдельный файл блокировки оставляет рабочую базу доступной для записи.
+    """Ставит отдельную SQLite-блокировку, чтобы два цикла не обрабатывали одну почту."""
     lock_path = path.with_name(path.name + ".lock")
     with closing(sqlite3.connect(lock_path, timeout=0)) as lock:
         try:
@@ -158,6 +168,7 @@ def lock_cycle(path: Path):
 
 
 def recover_interrupted_sends(path: Path, log: EventRecorder = ignore_event) -> int:
+    """Помечает прерванные отправки как неподтверждённые и записывает события восстановления."""
     with closing(sqlite3.connect(path)) as database, database:
         database.execute("""
             UPDATE responses SET error_code = 'smtp_interrupted'
@@ -174,6 +185,7 @@ def recover_interrupted_sends(path: Path, log: EventRecorder = ignore_event) -> 
 
 
 def pending_responses(database: sqlite3.Connection, mailbox: str) -> list[sqlite3.Row]:
+    """Выбирает зарегистрированные обращения с готовым КП или уточнением для отправки."""
     prefix = f"{mailbox.casefold()}:"
     return database.execute(
         """SELECT r.message_id AS request_id, m.subject, m.reply_to, m.internet_message_id,
@@ -189,6 +201,7 @@ def pending_responses(database: sqlite3.Connection, mailbox: str) -> list[sqlite
 
 def reserve_response(database: sqlite3.Connection, request_id: str, kind: str,
                      now: datetime) -> tuple[datetime, str | None]:
+    """Возвращает существующие реквизиты ответа или резервирует дату и очередной номер КП."""
     with database:
         database.execute("BEGIN IMMEDIATE")
         existing = database.execute(
@@ -215,6 +228,7 @@ def reserve_response(database: sqlite3.Connection, request_id: str, kind: str,
 
 def set_delivery_status(database: sqlite3.Connection, request_id: str, status: str,
                         error_code: str | None = None, archive_path: Path | None = None) -> None:
+    """Сохраняет статус отправки, код ошибки и путь к архиву ответа."""
     with database:
         database.execute(
             "UPDATE requests SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE message_id = ?",

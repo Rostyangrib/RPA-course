@@ -1,3 +1,5 @@
+"""Заполнение шаблонов КП и уточнений и сборка письма для исходной переписки."""
+
 from datetime import datetime, timedelta
 from decimal import Decimal
 from email.headerregistry import Address
@@ -30,14 +32,17 @@ REASONS = {
 
 
 def render(name: str, **fields: str) -> str:
+    """Подставляет данные в шаблон письма из каталога templates."""
     return Template((TEMPLATES / name).read_text(encoding="utf-8")).substitute(fields)
 
 
 def format_amount(amount: str) -> str:
+    """Форматирует денежное значение с двумя знаками и пробелами между разрядами."""
     return f"{Decimal(amount):,.2f}".replace(",", " ").replace(".", ",")
 
 
 def quote_bodies(result: dict, number: str, created_at: datetime) -> tuple[str, str]:
+    """Заполняет текстовый и HTML-шаблоны КП строками товаров, итогом и сроком действия."""
     fields = {
         "number": number,
         "date": created_at.strftime("%d.%m.%Y"),
@@ -52,6 +57,7 @@ def quote_bodies(result: dict, number: str, created_at: datetime) -> tuple[str, 
 
 
 def clarification_bodies(result: dict) -> tuple[str, str]:
+    """Заполняет оба шаблона уточнения причинами и фрагментами запроса."""
     issues = []
     for issue in result["issues"]:
         reason = REASONS.get(issue["code"], "уточните данные заказа")
@@ -65,6 +71,7 @@ def clarification_bodies(result: dict) -> tuple[str, str]:
 
 def build_reply(sender: str, recipient: str | None, subject: str, original_id: str | None,
                 references: str | None, created_at: datetime, number: str | None, result: dict) -> EmailMessage:
+    """Собирает письмо с одним адресатом, заголовками переписки и двумя версиями текста."""
     if not original_id or not MESSAGE_ID.fullmatch(original_id.strip()):
         raise ValueError("В обращении отсутствует корректный Message-ID.")
     history = dict.fromkeys(MESSAGE_ID.findall(references or "") + [original_id.strip()])

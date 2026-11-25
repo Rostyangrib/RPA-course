@@ -1,3 +1,5 @@
+"""Проверки получения токена, сетевых повторов и ошибок авторизации GigaChat."""
+
 from io import BytesIO
 import json
 from time import time
@@ -11,11 +13,13 @@ from rpa_course.gigachat import GigaChatClient, GigaChatSetupError, OAUTH_URL
 
 
 def json_response(value):
+    """Создаёт файловую подстановку с JSON-ответом для HTTP-клиента."""
     return BytesIO(json.dumps(value).encode("utf-8"))
 
 
 class GigaChatTests(unittest.TestCase):
     def setUp(self):
+        """Готовит клиента для тестов и подменяет чтение ключа."""
         self.client = GigaChatClient(GigaChatConfig())
         self.opener = Mock()
         self.enterContext(patch("rpa_course.gigachat.build_opener", return_value=self.opener))
@@ -23,6 +27,7 @@ class GigaChatTests(unittest.TestCase):
         self.sleep = self.enterContext(patch("rpa_course.gigachat.sleep"))
 
     def test_uses_oauth_and_reuses_token_within_cycle(self):
+        """Проверяет запрос токена и его повторное использование при нескольких расчётах."""
         response = {"choices": [{"finish_reason": "stop", "message": {"content": "{}"}}]}
         self.opener.open.side_effect = [json_response({"access_token": "mock-token", "expires_at": int(time() + 600)}),
                                         json_response(response), json_response(response)]
@@ -42,6 +47,7 @@ class GigaChatTests(unittest.TestCase):
             self.assertEqual(call.kwargs["timeout"], 180)
 
     def test_retries_network_error_and_stops_on_rejected_auth(self):
+        """Проверяет повтор при сетевой ошибке и остановку при отказе в авторизации."""
         self.opener.open.side_effect = [URLError("timeout"), HTTPError(OAUTH_URL, 401, "mock", {}, BytesIO())]
         with self.assertRaisesRegex(GigaChatSetupError, "HTTP 401"):
             self.client.complete({})

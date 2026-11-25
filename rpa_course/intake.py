@@ -1,3 +1,5 @@
+"""Проверка входящих и запись новых обращений в SQLite без повторного приёма."""
+
 from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
@@ -19,6 +21,7 @@ RETRY_INTERVAL = 30
 
 @dataclass(frozen=True)
 class IntakeReport:
+    """Хранит признак первого запуска и счётчики результатов приёма."""
     initialized: bool
     registered: int
     skipped: int
@@ -26,6 +29,7 @@ class IntakeReport:
 
 
 def receive_inbox(database_path: Path, address: str, log: EventRecorder = ignore_event) -> IntakeReport:
+    """Получает новые письма и повторяет временные ошибки подключения к IMAP."""
     password = get_mail_password(address)
     counts: Counter[str] = Counter()
 
@@ -48,6 +52,7 @@ def receive_inbox(database_path: Path, address: str, log: EventRecorder = ignore
 def scan_inbox(
     database: sqlite3.Connection, address: str, password: str, counts: Counter[str], log: EventRecorder = ignore_event
 ) -> bool:
+    """Фиксирует начальную границу или регистрирует письма в очереди по возрастанию UID."""
     mailbox = address.casefold()
     with open_inbox(address, password) as connection:
         uid_validity, last_available_uid = inbox_bounds(connection)

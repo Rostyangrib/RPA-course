@@ -1,3 +1,5 @@
+"""HTTP-клиент GigaChat с авторизацией OAuth, проверкой TLS и повторами."""
+
 from functools import cached_property
 from http.client import HTTPException
 import json
@@ -32,17 +34,21 @@ class InvalidModelResponse(ValueError):
 
 class NoRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Запрещает переадресацию HTTP-запроса с учётными данными."""
         return None
 
 
 class GigaChatClient:
+    """Хранит настройки подключения и повторно использует полученный токен в течение цикла."""
     def __init__(self, config: GigaChatConfig):
+        """Сохраняет параметры клиента и создаёт пустой кеш токена."""
         self.config = config
         self._token = ""
         self._token_expires = 0.0
 
     @cached_property
     def _opener(self):
+        """Создаёт HTTPS-клиент с доверенными сертификатами и запретом переадресаций."""
         try:
             context = ssl.create_default_context()
             if self.config.ca_bundle_file is not None:
@@ -52,6 +58,7 @@ class GigaChatClient:
         return build_opener(HTTPSHandler(context=context), NoRedirects())
 
     def _request_json(self, url: str, data: bytes, headers: dict[str, str]):
+        """Отправляет запрос к OAuth или модели, повторяет временные ошибки и читает JSON."""
         opener = self._opener
         oauth = url == OAUTH_URL
         stage = "OAuth" if oauth else "сопоставление"
@@ -84,6 +91,7 @@ class GigaChatClient:
         raise GigaChatError(f"GigaChat недоступен после трёх попыток ({stage}).")
 
     def _get_token(self) -> str:
+        """Возвращает действующий токен из кеша или получает новый по ключу авторизации."""
         if self._token and time() + 30 < self._token_expires:
             return self._token
 
@@ -110,6 +118,7 @@ class GigaChatClient:
         return token
 
     def complete(self, payload: dict) -> str:
+        """Отправляет запрос на сопоставление заказа и извлекает текст ответа модели."""
         result = self._request_json(
             f"{self.config.base_url}/chat/completions",
             json.dumps({"model": self.config.model, **payload}, ensure_ascii=False).encode("utf-8"),

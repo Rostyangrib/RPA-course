@@ -1,3 +1,5 @@
+"""Чтение TOML и проверка настроек почты, файлов и GigaChat."""
+
 from dataclasses import dataclass
 from email.errors import InvalidHeaderDefect, MessageError
 from email.headerregistry import Address
@@ -12,6 +14,7 @@ GIGACHAT_BASE_URL = "https://api.giga.chat/v1"
 
 @dataclass(frozen=True)
 class GigaChatConfig:
+    """Хранит параметры подключения к GigaChat и путь к доверенному сертификату."""
     scope: str = "GIGACHAT_API_PERS"
     model: str = "GigaChat-2-Pro"
     base_url: str = GIGACHAT_BASE_URL
@@ -20,6 +23,7 @@ class GigaChatConfig:
 
 @dataclass(frozen=True)
 class Config:
+    """Объединяет настройки почты, файлов и модели для одного запуска."""
     price_list: Path
     state_db: Path
     mail_address: str | None = None
@@ -27,6 +31,7 @@ class Config:
 
 
 def load_config(path: Path) -> Config:
+    """Читает TOML, разрешает пути относительно файла и проверяет параметры."""
     with path.open("rb") as source:
         data = tomllib.load(source)
 

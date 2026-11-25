@@ -1,3 +1,5 @@
+"""Отбор писем и извлечение адреса ответа и актуального текста заказа."""
+
 from dataclasses import dataclass
 from email import policy
 from email.errors import MessageError
@@ -23,6 +25,7 @@ HIDDEN_HTML = (
 
 @dataclass(frozen=True)
 class IncomingMessage:
+    """Представляет результат разбора письма перед его регистрацией в базе."""
     status: str
     subject: str = ""
     reply_to: str | None = None
@@ -33,6 +36,7 @@ class IncomingMessage:
 
 
 def single_address(message: EmailMessage, header_name: str) -> str | None:
+    """Извлекает один корректный адрес из указанного почтового заголовка."""
     headers = message.get_all(header_name, [])
     if len(headers) != 1 or headers[0].defects or len(headers[0].addresses) != 1:
         return None
@@ -43,6 +47,7 @@ def single_address(message: EmailMessage, header_name: str) -> str | None:
 
 
 def is_automatic(message: EmailMessage, sender: str | None) -> bool:
+    """Определяет автоответы и уведомления о доставке по заголовкам и отправителю."""
     submitted = str(message.get("Auto-Submitted", "no")).partition(";")[0].strip().casefold()
     report_type = str(message.get_param("report-type", "")).casefold()
     sender_name = (sender or "").partition("@")[0].casefold()
@@ -58,6 +63,7 @@ def is_automatic(message: EmailMessage, sender: str | None) -> bool:
 
 
 def html_text(html: str) -> str:
+    """Преобразует HTML письма в текст, убирая скрытые элементы и цитаты переписки."""
     content = BeautifulSoup(html, "html.parser")
     outlook_quote = content.select_one("#divRplyFwdMsg")
     if outlook_quote is not None:
@@ -77,6 +83,7 @@ def html_text(html: str) -> str:
 
 
 def current_text(text: str) -> str:
+    """Отсекает распознанные цитаты и оставляет текст текущего письма."""
     lines = []
     for line in text.splitlines():
         if QUOTE_START.match(line):
@@ -87,6 +94,7 @@ def current_text(text: str) -> str:
 
 
 def parse_message(raw: bytes, own_address: str) -> IncomingMessage:
+    """Отбирает заявку по теме и отправителю, извлекает текст и проверяет адрес ответа."""
     try:
         message = BytesParser(policy=policy.default).parsebytes(raw)
         subject = str(message.get("Subject", ""))

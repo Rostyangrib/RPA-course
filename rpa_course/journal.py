@@ -1,3 +1,5 @@
+"""Хранение технических событий за 30 дней и сводные уведомления сотруднику."""
+
 from collections.abc import Callable
 from contextlib import closing
 from email.errors import MessageError
@@ -19,16 +21,20 @@ ATTENTION = {'error', 'needs_review', 'send_unconfirmed'}
 
 
 def ignore_event(*args):
+    """Позволяет вызвать обработчик без записи событий, например в отдельном тесте."""
     pass
 
 
 class CycleJournal:
+    """Записывает события в отдельную SQLite-базу и собирает ошибки текущего цикла."""
     def __init__(self, path: Path):
+        """Принимает путь к журналу и создаёт пустой список событий для уведомления."""
         self.path = path
         self.database = None
         self.alerts = []
 
     def __enter__(self):
+        """Открывает журнал, создаёт таблицу и удаляет записи старше 30 дней."""
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.database = sqlite3.connect(self.path, timeout=2)
@@ -51,10 +57,12 @@ class CycleJournal:
         return self
 
     def __exit__(self, *exc):
+        """Закрывает соединение с техническим журналом."""
         if self.database is not None:
             self.database.close()
 
     def record(self, stage: str, status: str, request_id: str | None = None, error_code: str | None = None):
+        """Сохраняет этап, статус и код ошибки, добавляя проблемные события в сводку."""
         if stage != 'notification' and status in ATTENTION:
             self.alerts.append((request_id, stage, status, error_code))
         try:
@@ -72,6 +80,7 @@ class CycleJournal:
 
 
 def notify_employee(journal: CycleJournal, mailbox: str | None = None):
+    """Отправляет одно сводное письмо за цикл, если есть события для проверки."""
     if not journal.alerts:
         return
     recipient = getenv('RPA_NOTIFY_TO', '').strip()
