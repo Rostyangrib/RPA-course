@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from email.errors import InvalidHeaderDefect, MessageError
 from email.headerregistry import Address
+from os import getenv
 from pathlib import Path
 import tomllib
 
 
-DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "config.toml"
+DEFAULT_CONFIG = Path(__file__).resolve().with_name("config.toml")
 GIGACHAT_BASE_URL = "https://api.giga.chat/v1"
 
 
@@ -35,7 +36,7 @@ def load_config(path: Path) -> Config:
         price_file, state_file = paths["price_list"], paths["state_db"]
         price_list = (path.parent / price_file).resolve()
         state_db = (path.parent / state_file).resolve()
-        address = data.get("mail", {}).get("address", "").strip()
+        address = getenv("RPA_MAIL_ADDRESS", data.get("mail", {}).get("address", "")).strip()
         gigachat = data.get("gigachat", {})
         scope = gigachat.get("scope", defaults.scope)
         model = gigachat.get("model", defaults.model).strip()
@@ -55,7 +56,7 @@ def load_config(path: Path) -> Config:
             if not parsed.username or not parsed.domain or not address.isascii():
                 raise ValueError
         except (ValueError, IndexError, MessageError, InvalidHeaderDefect) as error:
-            raise ValueError(f"В конфигурации {path} укажите полный адрес Яндекс Почты.") from error
+            raise ValueError("Укажите полный адрес Яндекс Почты в mail.address или RPA_MAIL_ADDRESS.") from error
 
     if scope not in ("GIGACHAT_API_PERS", "GIGACHAT_API_B2B", "GIGACHAT_API_CORP"):
         raise ValueError("Укажите действительный gigachat.scope.")

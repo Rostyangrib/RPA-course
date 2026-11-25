@@ -12,10 +12,14 @@
   <header class="topbar">
     <div class="shell topbar-inner">
       <a class="brand" href="/"><span class="brand-mark" aria-hidden="true"><span class="mail-icon"></span></span>ОфисСнаб</a>
+      <nav class="status-tabs page-tabs" aria-label="Разделы панели">
+        <a id="journal-tab" href="/" aria-current="page">Журнал обращений</a>
+        <a id="price-tab" href="/price">Прайс-лист</a>
+      </nav>
       <span class="timezone">Иркутск · UTC+8</span>
     </div>
   </header>
-  <main class="shell workspace">
+  <main class="shell workspace" id="journal-view">
     <div class="page-heading">
       <h1>Журнал обращений</h1>
       <div class="page-actions">
@@ -75,6 +79,20 @@
         <div><button class="button" id="previous" type="button" disabled>Назад</button><button class="button" id="next" type="button" disabled>Далее</button></div>
       </footer>
     </section>
+  </main>
+  <main class="shell workspace" id="price-view" hidden>
+    <div class="page-heading">
+      <h1>Прайс-лист</h1>
+      <button id="price-refresh" class="button" type="button"><span class="refresh-icon" aria-hidden="true">↻</span>Обновить</button>
+    </div>
+    <div class="table-wrap" tabindex="0" aria-label="Таблица прайс-листа">
+      <table class="price-table">
+        <thead><tr><th scope="col">Артикул</th><th scope="col">Наименование</th><th scope="col">Описание</th><th scope="col">Синонимы</th><th scope="col">Единица</th><th scope="col">Цена</th></tr></thead>
+        <tbody id="price-rows"></tbody>
+      </table>
+    </div>
+    <p id="price-message" class="empty" role="status">Загружаем прайс-лист…</p>
+    <footer class="pagination" id="price-count" aria-live="polite" hidden></footer>
   </main>
   <dialog id="detail" aria-labelledby="detail-title">
     <div class="detail-header">

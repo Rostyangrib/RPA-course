@@ -1,0 +1,12 @@
+**
+!*.py
+!requirements.txt
+!config.toml
+!certs/
+!certs/*.crt
+!data/
+!data/price.xlsx
+!templates/
+!templates/**
+!web_assets/
+!web_assets/**

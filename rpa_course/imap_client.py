@@ -2,7 +2,7 @@ from contextlib import contextmanager, suppress
 from imaplib import IMAP4, IMAP4_SSL
 import ssl
 
-from .credentials import read_windows_credential
+from .credentials import read_credential
 
 
 HOST = "imap.yandex.ru"
@@ -20,9 +20,9 @@ def mail_login(address: str) -> str:
 
 
 def get_mail_password(address: str) -> str:
-    password = read_windows_credential(address)
+    password = read_credential(address, "RPA_MAIL_PASSWORD")
     if not password:
-        raise MailError("Сохраните пароль приложения Яндекс Почты в хранилище Windows. См. README.md.")
+        raise MailError("Укажите пароль приложения Яндекс Почты в RPA_MAIL_PASSWORD или хранилище Windows.")
     return password
 
 

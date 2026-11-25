@@ -5,6 +5,8 @@ import subprocess
 import sys
 from threading import Lock, Thread
 
+from .journal import CycleJournal, JOURNAL_PATH, notify_employee
+
 
 class RunControl:
     def __init__(self, config: Path | None, note: str = ""):
@@ -33,7 +35,10 @@ class RunControl:
             )
             state = "failed" if process.returncode else "succeeded"
             output = "\n".join(line.strip() for line in (process.stdout, process.stderr) if line.strip())
-        except OSError:
+        except OSError as error:
             state, output = "failed", "Не удалось запустить процесс робота."
+            with CycleJournal(JOURNAL_PATH) as journal:
+                journal.record('startup', 'error', error_code=type(error).__name__)
+                notify_employee(journal)
         with self.lock:
             self.result.update(state=state, output=output)

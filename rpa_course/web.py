@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import closing, contextmanager
+from dataclasses import asdict
 from datetime import date
 from email import policy
 from email.parser import BytesParser
@@ -12,6 +13,7 @@ import sqlite3
 from urllib.parse import parse_qs, quote, urlsplit
 
 from .config import DEFAULT_CONFIG, load_config
+from .price import PriceError, load_price
 from .reply import REASONS as CLARIFICATION_REASONS
 from .web_run import RunControl
 
@@ -19,6 +21,7 @@ from .web_run import RunControl
 ASSETS = Path(__file__).with_name("web_assets")
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/price": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
@@ -154,10 +157,12 @@ def request_detail(path: Path, row: sqlite3.Row) -> dict:
 
 
 class PanelServer(ThreadingHTTPServer):
-    def __init__(self, database: Path, port: int, run_control: RunControl):
+    def __init__(self, database: Path, port: int, run_control: RunControl, price_list: Path | None = None,
+                 host: str = "127.0.0.1"):
         self.database = database
         self.run_control = run_control
-        super().__init__(("127.0.0.1", port), PanelHandler)
+        self.price_list = price_list
+        super().__init__((host, port), PanelHandler)
 
 
 class PanelHandler(BaseHTTPRequestHandler):
@@ -216,6 +221,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             if url.path == "/api/run":
                 self.json_response(self.server.run_control.status())
                 return
+            if url.path == "/api/price":
+                if self.server.price_list is None:
+                    raise PriceError("Для просмотра прайса запустите панель с конфигурацией робота.")
+                products = load_price(self.server.price_list).products
+                self.json_response({"items": [{**asdict(product), "price": format(product.price, "f")}
+                                              for product in products]})
+                return
             if url.path in ("/api/detail", "/api/archive"):
                 row = request_row(path, filters.get("id", ""))
                 if row and url.path == "/api/detail":
@@ -225,6 +237,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                 if archive:
                     self.respond(200, archive.read_bytes(), "message/rfc822", archive.name)
                     return
+        except PriceError as error:
+            self.json_response({"error": str(error)}, 503)
+            return
         except (ValueError, OverflowError) as error:
             self.json_response({"error": str(error)}, 400)
             return
@@ -239,18 +254,21 @@ def main():
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="TOML-файл с настройками робота.")
     source.add_argument("--db", type=Path, help="Открыть другую локальную базу SQLite для просмотра.")
+    parser.add_argument("--host", choices=("127.0.0.1", "0.0.0.0"), default="127.0.0.1", help="Адрес привязки панели.")
     parser.add_argument("--port", type=int, default=8765, help="Локальный порт панели.")
     args = parser.parse_args()
     try:
+        price_list = None
         if args.db:
             database = args.db
             run_control = RunControl(None, "Открыта база в режиме просмотра.")
         else:
             config = load_config(args.config)
             database = config.state_db
+            price_list = config.price_list
             run_control = (RunControl(args.config.resolve()) if config.mail_address else
-                           RunControl(None, "Для обработки почты укажите mail.address в конфигурации панели."))
-        with PanelServer(database.resolve(), args.port, run_control) as server:
+                           RunControl(None, "Для обработки почты укажите mail.address или RPA_MAIL_ADDRESS."))
+        with PanelServer(database.resolve(), args.port, run_control, price_list, args.host) as server:
             print(f"Панель «ОфисСнаб»: http://127.0.0.1:{server.server_port}", flush=True)
             server.serve_forever()
     except KeyboardInterrupt:

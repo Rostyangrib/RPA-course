@@ -7,6 +7,7 @@ from .config import DEFAULT_CONFIG, load_config
 from .delivery import deliver_pending_responses
 from .gigachat import GigaChatClient
 from .intake import receive_inbox
+from .journal import CycleJournal, JOURNAL_PATH, notify_employee
 from .order_analysis import analyze_order
 from .order_queue import analyze_pending_orders
 from .price import load_price
@@ -21,32 +22,59 @@ def main() -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="Путь к TOML-файлу.")
     parser.add_argument("--check-gigachat", action="store_true", help="Проверить GigaChat на примере из ТЗ без почты.")
     args = parser.parse_args()
+    with CycleJournal(JOURNAL_PATH) as journal:
+        return run_cycle(args, journal)
 
+
+def run_cycle(args: argparse.Namespace, journal: CycleJournal) -> int:
+    log = journal.record
+    stage, mailbox, exit_code = 'startup', None, 1
+    log('cycle', 'started')
     try:
         config = load_config(args.config)
+        mailbox = config.mail_address
         initialize_database(config.state_db)
+        log(stage, 'ready')
+        stage = 'price'
         snapshot = load_price(config.price_list)
         save_price_snapshot(config.state_db, snapshot)
+        log(stage, 'loaded')
         gigachat = GigaChatClient(config.gigachat)
         if args.check_gigachat:
+            stage = 'analysis'
             result = analyze_order(DEMO_ORDER, snapshot.products, gigachat.complete)
             print(result.to_json())
-            return 0 if result.outcome == "quote" else 1
+            exit_code = 0 if result.outcome == "quote" else 1
+            log(stage, result.outcome, error_code=result.issues[0].code if result.issues else None)
+            return exit_code
 
         print(f"База состояний готова: {config.state_db}")
         print(f"Прайс-лист загружен. Товаров: {len(snapshot.products)}. SHA-256: {snapshot.sha256}")
         if config.mail_address is None:
-            print("Приём почты отключён. Укажите mail.address в конфигурации, чтобы подключить учебный ящик.")
-            return 0
+            print("Приём почты отключён. Укажите mail.address или RPA_MAIL_ADDRESS для подключения учебного ящика.")
+            exit_code = 0
+            return exit_code
 
+        stage = 'startup'
         with lock_cycle(config.state_db):
-            recovered = recover_interrupted_sends(config.state_db)
-            report = receive_inbox(config.state_db, config.mail_address)
-            counts = analyze_pending_orders(config.state_db, config.mail_address, snapshot, gigachat.complete)
-            delivery = deliver_pending_responses(config.state_db, config.mail_address)
+            stage = 'delivery'
+            recovered = recover_interrupted_sends(config.state_db, log)
+            stage = 'intake'
+            report = receive_inbox(config.state_db, mailbox, log)
+            log(stage, 'completed')
+            stage = 'analysis'
+            counts = analyze_pending_orders(config.state_db, mailbox, snapshot, gigachat.complete, log)
+            stage = 'delivery'
+            delivery = deliver_pending_responses(config.state_db, mailbox, log)
+        exit_code = 0
     except (OSError, ValueError, sqlite3.Error) as error:
+        log(stage, 'error', error_code=type(error).__name__)
         print(f"Цикл остановлен: {error}", file=sys.stderr)
-        return 1
+        return exit_code
+    finally:
+        log('cycle', 'completed' if exit_code == 0 else 'failed')
+        if not args.check_gigachat:
+            notify_employee(journal, mailbox)
 
     if report.initialized:
         print("Зафиксирована граница входящих. Робот начнёт приём с писем, поступивших после неё.")

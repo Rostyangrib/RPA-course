@@ -19,7 +19,7 @@ class GigaChatTests(unittest.TestCase):
         self.client = GigaChatClient(GigaChatConfig())
         self.opener = Mock()
         self.enterContext(patch("rpa_course.gigachat.build_opener", return_value=self.opener))
-        self.enterContext(patch("rpa_course.gigachat.read_windows_credential", return_value="test-key"))
+        self.enterContext(patch("rpa_course.gigachat.read_credential", return_value="test-key"))
         self.sleep = self.enterContext(patch("rpa_course.gigachat.sleep"))
 
     def test_uses_oauth_and_reuses_token_within_cycle(self):

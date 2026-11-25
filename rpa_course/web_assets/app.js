@@ -44,6 +44,37 @@ async function read(url, signal, method = 'GET') {
   return data;
 }
 
+async function loadPrice() {
+  const button = byId('price-refresh');
+  const rows = byId('price-rows');
+  const message = byId('price-message');
+  const count = byId('price-count');
+  button.disabled = true;
+  rows.replaceChildren();
+  count.hidden = true;
+  message.hidden = false;
+  message.classList.remove('error-text');
+  message.textContent = 'Загружаем прайс-лист…';
+  try {
+    const { items } = await read('/api/price');
+    rows.replaceChildren(...items.map((item) => {
+      const row = element('tr');
+      for (const value of [item.sku, item.name, item.description || '–', item.synonyms.join('; ') || '–', item.unit, money(item.price)]) {
+        row.insertCell().textContent = value;
+      }
+      return row;
+    }));
+    count.textContent = `Позиций: ${items.length}`;
+    count.hidden = false;
+    message.hidden = true;
+  } catch (error) {
+    message.textContent = error.message;
+    message.classList.add('error-text');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function checkRun(method = 'GET') {
   runButton.disabled = true;
   try {
@@ -238,5 +269,15 @@ byId('refresh').addEventListener('click', () => loadList(page));
 byId('previous').addEventListener('click', () => loadList(page - 1));
 byId('next').addEventListener('click', () => loadList(page + 1));
 runButton.addEventListener('click', () => checkRun('POST'));
-loadList();
-checkRun();
+if (location.pathname === '/price') {
+  document.title = 'Прайс-лист – ОфисСнаб';
+  byId('journal-tab').removeAttribute('aria-current');
+  byId('price-tab').setAttribute('aria-current', 'page');
+  byId('journal-view').hidden = true;
+  byId('price-view').hidden = false;
+  byId('price-refresh').addEventListener('click', loadPrice);
+  loadPrice();
+} else {
+  loadList();
+  checkRun();
+}

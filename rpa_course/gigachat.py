@@ -9,7 +9,7 @@ from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_ope
 from uuid import uuid4
 
 from .config import GigaChatConfig
-from .credentials import read_windows_credential
+from .credentials import read_credential
 
 
 OAUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
@@ -87,9 +87,9 @@ class GigaChatClient:
         if self._token and time() + 30 < self._token_expires:
             return self._token
 
-        key = (read_windows_credential("GIGACHAT_CREDENTIALS") or "").strip()
+        key = (read_credential("GIGACHAT_CREDENTIALS", "GIGACHAT_CREDENTIALS") or "").strip()
         if not key:
-            raise GigaChatSetupError("Сохраните GIGACHAT_CREDENTIALS в хранилище Windows. См. README.md.")
+            raise GigaChatSetupError("Укажите GIGACHAT_CREDENTIALS в окружении или хранилище Windows.")
         if not key.isascii() or any(char.isspace() for char in key):
             raise GigaChatSetupError("В хранилище Windows нужен ключ GigaChat без префикса Basic.")
 

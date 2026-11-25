@@ -1,3 +1,26 @@
 __pycache__/
 .venv/
+.env
+.env.*
+!.env.example
 /.runtime/
+/rpa_course/.runtime/
+
+# Локальные материалы и результаты сборки
+/artifacts/
+/materials/
+_work/
+/domtorg/docs/
+/rpa_course/docs/
+/rpa_course/RUN_GUIDE.md
+/rpa_course/TEST_PROTOCOL.md
+
+# Архивы, в том числе за пределами artifacts/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz

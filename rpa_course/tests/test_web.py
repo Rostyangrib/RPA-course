@@ -1,14 +1,20 @@
 from contextlib import closing
 from email.message import EmailMessage
+from http.client import HTTPConnection
+import json
 from pathlib import Path
 import sqlite3
 from subprocess import CompletedProcess
 from tempfile import TemporaryDirectory
+from threading import Thread
 import unittest
 from unittest.mock import patch
 
+from openpyxl import Workbook
+
+from rpa_course.price import HEADERS
 from rpa_course.storage import initialize_database
-from rpa_course.web import PAGE_SIZE, archive_file, list_requests, request_detail, request_row
+from rpa_course.web import PAGE_SIZE, PanelServer, archive_file, list_requests, request_detail, request_row
 from rpa_course.web_run import RunControl
 
 
@@ -82,3 +88,41 @@ class WebPanelTest(unittest.TestCase):
             self.assertEqual(command[-4:], ["-m", "rpa_course", "--config", str(config)])
         self.assertEqual(control.status()["state"], "failed")
         self.assertEqual(control.status()["output"], "Прайс загружен.\nОшибка IMAP.")
+
+    def test_price_reads_configured_workbook_on_each_request(self):
+        price_path = self.path.with_suffix(".xlsx")
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Прайс"
+        sheet.append(HEADERS)
+        sheet.append(("P1", "Бумага", "А4", "лист; бумага А4", "упак.", 350.25))
+        workbook.save(price_path)
+        self.addCleanup(workbook.close)
+
+        with PanelServer(self.path, 0, RunControl(None), price_path) as server:
+            worker = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            worker.start()
+            try:
+                with closing(HTTPConnection("127.0.0.1", server.server_port, timeout=5)) as connection:
+                    connection.request("GET", "/api/price")
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    payload = json.load(response)
+                    self.assertEqual(payload["items"], [{
+                        "sku": "P1", "name": "Бумага", "description": "А4", "synonyms": ["лист", "бумага А4"],
+                        "unit": "упак.", "price": "350.25",
+                    }])
+
+                    sheet["F2"] = 400
+                    workbook.save(price_path)
+                    connection.request("GET", "/api/price")
+                    self.assertEqual(json.load(connection.getresponse())["items"][0]["price"], "400")
+
+                    price_path.unlink()
+                    connection.request("GET", "/api/price")
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 503)
+                    self.assertIn("прайс-листе", json.load(response)["error"])
+            finally:
+                server.shutdown()
+                worker.join()

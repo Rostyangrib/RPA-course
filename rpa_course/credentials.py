@@ -1,7 +1,17 @@
+from os import getenv
 import sys
 
 
 CREDENTIAL_SERVICE = "RPA-course"
+
+
+def read_credential(name: str, variable: str) -> str | None:
+    value = getenv(variable)
+    if value is not None:
+        return value.strip() or None
+    if sys.platform == "win32":
+        return read_windows_credential(name)
+    return None
 
 
 def read_windows_credential(name: str) -> str | None:

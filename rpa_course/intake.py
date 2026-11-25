@@ -8,6 +8,7 @@ from ssl import SSLCertVerificationError
 from time import sleep
 
 from .imap_client import MailError, fetch_message, get_mail_password, inbox_bounds, open_inbox, search_uids
+from .journal import EventRecorder, ignore_event
 from .mail_message import parse_message
 from .storage import get_or_create_inbox_cursor, save_intake_result
 
@@ -24,7 +25,7 @@ class IntakeReport:
     needs_review: int
 
 
-def receive_inbox(database_path: Path, address: str) -> IntakeReport:
+def receive_inbox(database_path: Path, address: str, log: EventRecorder = ignore_event) -> IntakeReport:
     password = get_mail_password(address)
     counts: Counter[str] = Counter()
 
@@ -32,7 +33,7 @@ def receive_inbox(database_path: Path, address: str) -> IntakeReport:
         database.execute("PRAGMA foreign_keys = ON")
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:
-                initialized = scan_inbox(database, address, password, counts)
+                initialized = scan_inbox(database, address, password, counts, log)
                 return IntakeReport(initialized, counts["registered"], counts["skipped"], counts["needs_review"])
             except SSLCertVerificationError:
                 raise MailError("Не удалось проверить сертификат IMAP-сервера.") from None
@@ -45,7 +46,7 @@ def receive_inbox(database_path: Path, address: str) -> IntakeReport:
 
 
 def scan_inbox(
-    database: sqlite3.Connection, address: str, password: str, counts: Counter[str]
+    database: sqlite3.Connection, address: str, password: str, counts: Counter[str], log: EventRecorder = ignore_event
 ) -> bool:
     mailbox = address.casefold()
     with open_inbox(address, password) as connection:
@@ -63,7 +64,7 @@ def scan_inbox(
             if raw is None:
                 continue
             message = parse_message(raw, address)
-            if save_intake_result(database, mailbox, uid_validity, uid, message):
+            if save_intake_result(database, mailbox, uid_validity, uid, message, log):
                 counts[message.status] += 1
 
         if last_available_uid > checkpoint:

@@ -1,0 +1,19 @@
+services:
+  ofissnab:
+    build: ./rpa_course
+    init: true
+    command: ["python", "-m", "rpa_course.web", "--host", "0.0.0.0", "--port", "${RPA_PORT:-8765}"]
+    ports:
+      - "127.0.0.1:${RPA_PORT:-8765}:${RPA_PORT:-8765}"
+    environment:
+      RPA_MAIL_ADDRESS: "${RPA_MAIL_ADDRESS:-}"
+      RPA_MAIL_PASSWORD: "${RPA_MAIL_PASSWORD:-}"
+      GIGACHAT_CREDENTIALS: "${GIGACHAT_CREDENTIALS:-}"
+      RPA_NOTIFY_FROM: "${RPA_MAIL_ADDRESS:-}"
+      RPA_NOTIFY_TO: "${RPA_NOTIFY_TO:-}"
+    volumes:
+      - ./rpa_course/data:/app/rpa_course/data:ro
+      - ofissnab_state:/app/rpa_course/.runtime
+
+volumes:
+  ofissnab_state:

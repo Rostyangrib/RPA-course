@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 from .mail_message import IncomingMessage
+from .journal import EventRecorder, ignore_event
 from .price import PriceSnapshot
 
 
@@ -85,6 +86,7 @@ def save_intake_result(
     uid_validity: int,
     uid: int,
     message: IncomingMessage | None,
+    log: EventRecorder = ignore_event,
 ) -> bool:
     inserted = 0
     with database:
@@ -106,6 +108,8 @@ def save_intake_result(
             "UPDATE inbox_cursors SET last_uid = MAX(last_uid, ?) WHERE mailbox = ? AND uid_validity = ?",
             (uid, mailbox, uid_validity),
         )
+    if message is not None and inserted:
+        log('intake', message.status, request_id, message.issue)
     return bool(inserted)
 
 
@@ -153,16 +157,20 @@ def lock_cycle(path: Path):
         yield
 
 
-def recover_interrupted_sends(path: Path) -> int:
+def recover_interrupted_sends(path: Path, log: EventRecorder = ignore_event) -> int:
     with closing(sqlite3.connect(path)) as database, database:
         database.execute("""
             UPDATE responses SET error_code = 'smtp_interrupted'
             WHERE request_id IN (SELECT message_id FROM requests WHERE status = 'sending')
         """)
-        return database.execute("""
+        recovered = database.execute("""
             UPDATE requests SET status = 'send_unconfirmed', updated_at = CURRENT_TIMESTAMP
             WHERE status = 'sending'
-        """).rowcount
+            RETURNING message_id
+        """).fetchall()
+    for (request_id,) in recovered:
+        log('delivery', 'send_unconfirmed', request_id, 'smtp_interrupted')
+    return len(recovered)
 
 
 def pending_responses(database: sqlite3.Connection, mailbox: str) -> list[sqlite3.Row]:

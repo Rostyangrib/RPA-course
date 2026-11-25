@@ -26,7 +26,9 @@ def matched(fragment, sku="P002", quantity=20, unit="шт."):
 
 
 def model_result(*positions):
-    return json.dumps({"too_many_positions": False, "positions": positions}, ensure_ascii=False)
+    return json.dumps({"too_many_positions": False, "positions": [
+        {"id": index, **position} for index, position in enumerate(positions, 1)
+    ]}, ensure_ascii=False)
 
 
 class OrderAnalysisTests(unittest.TestCase):
@@ -54,7 +56,7 @@ class OrderAnalysisTests(unittest.TestCase):
                          for p in self.snapshot.products)
         text = "Синие ручки — 2 шт. и ещё 3 синих ручки."
         complete = lambda _: model_result(matched("Синие ручки — 2 шт.", quantity=2),
-                                          matched("3 синих ручки", quantity=3))
+                                          matched("3 синих ручки.", quantity=3))
         result = analyze_order(text, products, complete)
         self.assertEqual([line.quantity for line in result.lines], [5])
         self.assertEqual(str(result.total), "12.75")
@@ -82,6 +84,49 @@ class OrderAnalysisTests(unittest.TestCase):
         self.assertIsNone(result.total)
         self.assertFalse(result.lines)
         self.assertEqual([issue.code for issue in result.issues], ["ambiguous", "missing_quantity", "invalid_unit"])
+
+    def test_omitted_and_duplicate_ids_cannot_produce_a_quote(self):
+        first, second, third = (
+            matched("Бумага А4 — 5 упаковок", "P001", 5, "упак."),
+            matched("синие ручки — 20 штук"),
+            matched("регистратор А4 75 мм — 3 шт.", "P004", 3),
+        )
+        complete = Mock(side_effect=[model_result(first, third), model_result(first, {**second, 'id': 1}, third)])
+        result = analyze_order(DEMO_ORDER, self.snapshot.products, complete)
+        self.assertEqual(result.outcome, 'needs_review')
+        self.assertFalse(result.lines)
+        self.assertEqual(complete.call_count, 2)
+
+    def test_checks_language_before_calling_model_and_accepts_brand_and_size(self):
+        complete = Mock()
+        for text in ('Please quote 20 blue pens.', 'Нам потрібні сині ручки, 20 штук.'):
+            result = analyze_order(text, self.snapshot.products, complete)
+            self.assertEqual([issue.code for issue in result.issues], ['russian_required'])
+        complete.assert_not_called()
+
+        text = 'Картридж HP 305 – 2 шт.'
+        complete.return_value = model_result({'fragment': text, 'match': 'not_found'})
+        self.assertEqual(analyze_order(text, self.snapshot.products, complete).issues[0].code, 'not_found')
+        text = 'Бумага А4, 500 листов – 5 упаковок'
+        complete.return_value = model_result(matched(text, 'P001', 5, 'упак.'))
+        self.assertEqual(analyze_order(text, self.snapshot.products, complete).total, Decimal('1750.00'))
+
+    def test_asks_for_separate_lines_when_order_boundaries_are_unclear(self):
+        complete = Mock()
+        for text in ('Нужны синие и красные ручки по 10 штук.', 'Нужна бумага 5 ручки 10'):
+            result = analyze_order(text, self.snapshot.products, complete)
+            self.assertEqual([issue.code for issue in result.issues], ['unclear_positions'])
+        complete.assert_not_called()
+
+    def test_rejects_model_changes_to_written_quantity_and_unit(self):
+        for text, unit, quantity, code in (
+            ("Нужна бумага А4, 500 листов – 5 штук.", "упак.", 5, "invalid_unit"),
+            ("Нужна бумага А4 – 5 упаковок.", "упак.", 10, "invalid_quantity"),
+        ):
+            response = model_result(matched(text, "P001", quantity, unit))
+            result = analyze_order(text, self.snapshot.products, lambda _: response)
+            self.assertEqual(result.outcome, "clarification")
+            self.assertEqual(result.issues[0].code, code)
 
     def test_queue_uses_one_snapshot_and_does_not_repeat_finished_analysis(self):
         db_path = Path(self.enterContext(TemporaryDirectory())) / "state.sqlite3"

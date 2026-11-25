@@ -5,13 +5,15 @@ from pathlib import Path
 import sqlite3
 
 from .gigachat import GigaChatError
+from .journal import EventRecorder, ignore_event
 from .order_analysis import Issue, OrderAnalysis, analyze_order
 from .price import PriceSnapshot
 from .storage import pending_orders, save_order_analysis
 
 
 def analyze_pending_orders(
-    database_path: Path, mailbox: str, snapshot: PriceSnapshot, complete: Callable[[dict], str]
+    database_path: Path, mailbox: str, snapshot: PriceSnapshot, complete: Callable[[dict], str],
+    log: EventRecorder = ignore_event,
 ) -> Counter[str]:
     counts: Counter[str] = Counter()
     with closing(sqlite3.connect(database_path)) as database:
@@ -27,4 +29,8 @@ def analyze_pending_orders(
 
             if save_order_analysis(database, request_id, snapshot.sha256, result.outcome, result.to_json()):
                 counts[result.outcome] += 1
+                code = result.issues[0].code if result.issues else None
+                log('analysis', result.outcome, request_id, code)
+                if result.outcome == 'quote':
+                    log('calculation', 'completed', request_id, None)
     return counts
