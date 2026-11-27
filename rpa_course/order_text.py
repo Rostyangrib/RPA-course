@@ -12,7 +12,10 @@ DetectorFactory.seed = 0
 WORD = re.compile(r'[^\W\d_]+')
 RUSSIAN_WORD = re.compile(r'[а-яё]{2,}')
 RUSSIAN_ENDING = re.compile(r'(?<=.{3})(?:ыми|ими|ых|их|ый|ий|ой|ая|яя|ое|ее|ые|ие|ую|юю|[аеёиоуыья])$')
-ORDER_WORDS = set('шт штук штука штуки уп упак упаковка упаковок упаковки единиц нужно нужны нужен нужна и еще ещё'.split())
+ORDER_WORDS = set((
+    'шт штук штука штуки уп упак упаковка упаковку упаковок упаковки пачка пачки пачку пачек единиц '
+    'нужно нужны нужен нужна и еще ещё'
+).split())
 INTRO = re.compile(
     r'^(?:\s*(?:здравствуйте|добрый день|доброе утро|добрый вечер)[!.,\s]+|'
     r'\s*(?:посчитайте|рассчитайте|прошу (?:посчитать|рассчитать))(?:\s+заказ)?'
@@ -20,7 +23,10 @@ INTRO = re.compile(
 )
 OUTRO = re.compile(r'(?:[.,!;]|\n)\s*(?:(?:заранее\s+)?спасибо\s*[.!]*\s*$|с уважением\b[\s\S]*$)', re.IGNORECASE)
 SEPARATOR = re.compile(r'[,;\n]+|[ \t]+и[ \t]+(?:ещ[её][ \t]+)?', re.IGNORECASE)
-AMOUNT = re.compile(r'(?<![\d.,])([-−]?\d+(?:[.,]\d+)?)\s*(шт|штук[аи]?|уп|упак|упаков(?:ок|ки|ка)|единиц[аы]?)\b', re.IGNORECASE)
+AMOUNT = re.compile(
+    r'(?<![\d.,])([-−]?\d+(?:[.,]\d+)?)\s*'
+    r'(шт|штук[аи]?|уп|упак|упаков(?:ок|ки|ка|ку)|пач(?:ка|ки|ку|ек)|единиц[аы]?)\b', re.IGNORECASE,
+)
 AMOUNT_ONLY = re.compile(rf'{AMOUNT.pattern}[. \t]*(?=[,;\n]|$)', re.IGNORECASE)
 SPECIFICATION = re.compile(r'(?<![\w.,])\s*\d+(?:[.,]\d+)?\s*(?:мм|см|мкм|мл|лист(?:а|ов)?)\b', re.IGNORECASE)
 UNSEPARATED_AMOUNTS = re.compile(r'(?<![\w.,])\d+(?:\s+[а-яё]{2,})+\s+\d+(?![\w.,])', re.IGNORECASE)

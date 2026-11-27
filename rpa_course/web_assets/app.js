@@ -15,6 +15,7 @@ const detailBody = byId('detail-body');
 const runButton = byId('run-start');
 const runStatus = byId('run-status');
 const runLog = byId('run-log');
+const scheduleForm = byId('schedule');
 const timeZone = 'Asia/Irkutsk';
 const timeFormat = new Intl.DateTimeFormat('ru-RU', {
   timeZone, dateStyle: 'short', timeStyle: 'short',
@@ -60,11 +61,48 @@ function statusPill(status, label = statuses[status] || status) {
 }
 
 /** Выполняет запрос панели и возвращает JSON или сообщение об ошибке API. */
-async function read(url, signal, method = 'GET') {
-  const response = await fetch(url, { signal, method });
+async function read(url, signal, method = 'GET', payload) {
+  const options = { signal, method };
+  if (payload !== undefined) {
+    options.body = JSON.stringify(payload);
+    options.headers = { 'Content-Type': 'application/json' };
+    options.keepalive = true;
+  }
+  const response = await fetch(url, options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || data.note || 'Не удалось загрузить данные.');
   return data;
+}
+
+/** Загружает расписание, сразу сохраняет переключатель или применяет интервал по кнопке. */
+async function updateSchedule(event) {
+  event?.preventDefault();
+  const controls = byId('schedule-controls');
+  const enabled = byId('schedule-enabled');
+  const interval = byId('schedule-interval');
+  const status = byId('schedule-status');
+  const toggleOnly = event?.type === 'change';
+  const payload = event ? { enabled: enabled.checked } : undefined;
+  if (event && !toggleOnly) payload.interval_minutes = interval.valueAsNumber;
+  controls.disabled = true;
+  status.textContent = '';
+  status.classList.remove('error-text');
+  try {
+    const settings = await read('/api/schedule', undefined, event ? 'POST' : 'GET', payload);
+    if (settings.available === false) return;
+    scheduleForm.hidden = false;
+    enabled.checked = enabled.defaultChecked = settings.enabled;
+    if (!toggleOnly) interval.value = settings.interval_minutes;
+    if (toggleOnly) status.textContent = settings.enabled ? 'Автообработка включена.' : 'Автообработка приостановлена.';
+    else if (event) status.textContent = 'Интервал сохранён.';
+  } catch (error) {
+    scheduleForm.hidden = false;
+    if (toggleOnly) enabled.checked = enabled.defaultChecked;
+    status.textContent = error.message;
+    status.classList.add('error-text');
+  } finally {
+    controls.disabled = false;
+  }
 }
 
 /** Перечитывает Excel через API и обновляет таблицу прайса. */
@@ -359,6 +397,8 @@ byId('previous').addEventListener('click', () => loadList(page - 1));
 byId('next').addEventListener('click', () => loadList(page + 1));
 // Только POST запускает цикл, а последующие опросы читают его состояние.
 runButton.addEventListener('click', () => checkRun('POST'));
+scheduleForm.addEventListener('submit', updateSchedule);
+byId('schedule-enabled').addEventListener('change', updateSchedule);
 // Все вкладки используют одну HTML-страницу, а маршрут определяет видимый раздел.
 const view = { '/price': 'price', '/technical-journal': 'events' }[location.pathname];
 if (view) {
@@ -382,4 +422,5 @@ if (view === 'price') {
 } else {
   loadList();
   checkRun();
+  updateSchedule();
 }

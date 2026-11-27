@@ -78,11 +78,27 @@ a { color: var(--accent); }
 #run-start:not(:disabled) { border-color: var(--selection); }
 .run-info { padding: 5px 0 var(--space-8); color: var(--muted); }
 .run-info details { margin-top: var(--space-4); }
+.schedule { padding-block: var(--space-8); font-size: var(--text-ui); }
+.schedule-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+  border: 0;
+}
+.schedule-controls label { display: inline-flex; align-items: center; gap: var(--space-6); }
+.schedule-controls input[type='checkbox'] { margin: 0; accent-color: var(--selection); }
+.schedule-controls input[type='number'] { width: 76px; }
+.schedule-controls span { color: var(--muted); }
+#schedule-status:not(:empty) { margin-top: var(--space-4); }
 h1 { font-size: var(--text-page-title); font-weight: var(--weight-emphasis); line-height: 1.25; }
 h2 { font-size: 1.12rem; line-height: 1.3; }
 h3 { font-size: 1rem; font-weight: var(--weight-emphasis); }
 
-.button, .filters input:not([type='checkbox']), .filters select {
+.button, .filters input:not([type='checkbox']), .filters select, .schedule-controls input[type='number'] {
   min-height: var(--control-height);
   padding: var(--space-4) var(--space-12);
   border: var(--border-control);

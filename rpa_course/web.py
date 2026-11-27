@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 
 from .config import DEFAULT_CONFIG, load_config
 from .journal import JOURNAL_PATH
+from .mail_schedule import SCHEDULE_PATH, read_schedule, write_schedule
 from .price import PriceError, load_price
 from .reply import REASONS as CLARIFICATION_REASONS
 from .web_run import RunControl
@@ -25,7 +26,7 @@ STATIC = {
     "/price": ("index.html", "text/html; charset=utf-8"),
     "/technical-journal": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
-    "/lada-logo.png": ("lada-logo.png", "image/png"),
+    "/mail-logo.png": ("mail-logo.png", "image/png"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }
 PAGE_SIZE = 20
@@ -188,11 +189,12 @@ def request_detail(path: Path, row: sqlite3.Row) -> dict:
 class PanelServer(ThreadingHTTPServer):
     """Связывает HTTP-обработчик с путями к базе и прайсу и управлением запуска."""
     def __init__(self, database: Path, port: int, run_control: RunControl, price_list: Path | None = None,
-                 host: str = "127.0.0.1"):
+                 host: str = "127.0.0.1", schedule_path: Path | None = None):
         """Подключает обработчик панели и открывает заданный локальный адрес и порт."""
         self.database = database
         self.run_control = run_control
         self.price_list = price_list
+        self.schedule_path = schedule_path
         super().__init__((host, port), PanelHandler)
 
 
@@ -230,15 +232,34 @@ class PanelHandler(BaseHTTPRequestHandler):
         return None
 
     def do_POST(self):
-        """Принимает команду запуска робота из локальной панели."""
+        """Принимает ручной запуск или изменение расписания из локальной панели."""
         origin = self.panel_origin()
         if not origin or self.headers.get("Origin") != origin:
             self.json_response({"error": "Запустите обработку из локальной панели."}, 403)
-        elif self.path != "/api/run":
-            self.json_response({"error": "Действие не найдено."}, 404)
-        else:
+        elif self.path == "/api/run":
             result = self.server.run_control.start()
             self.json_response(result, 202 if result["state"] == "running" else 409)
+        elif self.path == "/api/schedule" and self.server.schedule_path is not None:
+            self.save_schedule()
+        else:
+            self.json_response({"error": "Действие не найдено."}, 404)
+
+    def save_schedule(self):
+        """Считывает небольшой JSON-запрос и сохраняет настройки автообработки."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 1 <= length <= 1024:
+                raise ValueError
+            value = json.loads(self.rfile.read(length))
+        except (ValueError, RecursionError):
+            self.json_response({"error": "Не удалось разобрать настройки автообработки."}, 400)
+            return
+        try:
+            self.json_response(write_schedule(self.server.schedule_path, value))
+        except ValueError as error:
+            self.json_response({"error": str(error)}, 400)
+        except OSError:
+            self.json_response({"error": "Не удалось сохранить расписание. Повторите попытку."}, 503)
 
     def do_GET(self):
         """Возвращает страницы, записи API или архив ответа в зависимости от маршрута."""
@@ -261,6 +282,13 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             if url.path == "/api/run":
                 self.json_response(self.server.run_control.status())
+                return
+            if url.path == "/api/schedule":
+                schedule_path = self.server.schedule_path
+                try:
+                    self.json_response(read_schedule(schedule_path) if schedule_path else {"available": False})
+                except (ValueError, OSError):
+                    self.json_response({"error": "Не удалось прочитать расписание. Сохраните его заново."}, 503)
                 return
             if url.path == "/api/price":
                 if self.server.price_list is None:
@@ -310,7 +338,8 @@ def main():
             price_list = config.price_list
             run_control = (RunControl(args.config.resolve()) if config.mail_address else
                            RunControl(None, "Для обработки почты укажите mail.address или RPA_MAIL_ADDRESS."))
-        with PanelServer(database.resolve(), args.port, run_control, price_list, args.host) as server:
+        schedule_path = None if args.db else SCHEDULE_PATH
+        with PanelServer(database.resolve(), args.port, run_control, price_list, args.host, schedule_path) as server:
             print(f"Панель «ОфисСнаб»: http://127.0.0.1:{server.server_port}", flush=True)
             server.serve_forever()
     except KeyboardInterrupt:

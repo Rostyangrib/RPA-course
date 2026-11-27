@@ -143,6 +143,18 @@ class OrderAnalysisTests(unittest.TestCase):
             self.assertEqual([issue.code for issue in result.issues], ['unclear_positions'])
         complete.assert_not_called()
 
+    def test_pack_synonym_preserves_russian_and_flags_conflicting_quantities(self):
+        """Проверяет, что пачки считаются упаковками, а два количества требуют уточнения."""
+        complete = Mock()
+        ambiguous = 'Нужна бумага А4 5 пачек, 500 листов – 5 штук.'
+        result = analyze_order(ambiguous, self.snapshot.products, complete)
+        self.assertEqual([issue.code for issue in result.issues], ['unclear_positions'])
+        complete.assert_not_called()
+
+        request = 'Нужна бумага А4, 500 листов – 5 пачек.'
+        complete.return_value = model_result(matched(request, 'P001', 5, 'упак.'))
+        self.assertEqual(analyze_order(request, self.snapshot.products, complete).total, Decimal('1750.00'))
+
     def test_rejects_model_changes_to_written_quantity_and_unit(self):
         """Проверяет сверку ответа модели с явно записанным количеством и единицей."""
         for text, unit, quantity, code in (

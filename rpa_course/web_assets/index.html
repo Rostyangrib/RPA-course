@@ -12,7 +12,7 @@
 <body>
   <header class="topbar">
     <div class="shell topbar-inner">
-      <a class="brand" href="/"><img class="brand-mark" src="/lada-logo.png" width="32" height="32" alt="">OnlyFans</a>
+      <a class="brand" href="/"><img class="brand-mark" src="/mail-logo.png" width="32" height="32" alt="">ОфисСнаб</a>
       <nav class="status-tabs page-tabs" aria-label="Разделы панели">
         <a id="journal-tab" href="/" aria-current="page">Журнал обращений</a>
         <a id="price-tab" href="/price">Прайс-лист</a>
@@ -36,6 +36,15 @@
         <pre class="message-text" id="run-output"></pre>
       </details>
     </div>
+    <form class="schedule" id="schedule" aria-label="Расписание обработки почты" hidden>
+      <fieldset class="schedule-controls" id="schedule-controls" disabled>
+        <label><input type="checkbox" id="schedule-enabled" role="switch" checked> Автообработка почты</label>
+        <label>Интервал, минут <input type="number" id="schedule-interval" min="1" max="540" value="5" required></label>
+        <button class="button" type="submit">Сохранить интервал</button>
+        <span>09:00–18:00 по Иркутску</span>
+      </fieldset>
+      <p id="schedule-status" role="status"></p>
+    </form>
 
     <section class="journal" aria-label="Список обращений">
       <div class="status-tabs" role="group" aria-label="Быстрые фильтры">

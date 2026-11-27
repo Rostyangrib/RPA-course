@@ -122,6 +122,45 @@ class WebPanelTest(unittest.TestCase):
         self.assertEqual(control.status()["state"], "failed")
         self.assertEqual(control.status()["output"], "Прайс загружен.\nОшибка IMAP.")
 
+    def test_schedule_settings_are_validated_and_saved_for_windows(self):
+        """Проверяет значения по умолчанию, локальный источник запроса и общий файл настроек."""
+        path = self.path.parent / "schedule" / "settings.json"
+        with PanelServer(self.path, 0, RunControl(None), schedule_path=path) as server:
+            worker = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            worker.start()
+            try:
+                origin = f"http://127.0.0.1:{server.server_port}"
+                with closing(HTTPConnection("127.0.0.1", server.server_port, timeout=5)) as connection:
+                    connection.request("GET", "/api/schedule")
+                    self.assertEqual(json.load(connection.getresponse()), {"enabled": True, "interval_minutes": 5})
+
+                    paused = {"enabled": False, "interval_minutes": 10}
+                    for source, data, status in (
+                        ("http://example.com", paused, 403),
+                        (origin, {"enabled": True, "interval_minutes": True}, 400),
+                        (origin, {"enabled": True, "interval_minutes": 0}, 400),
+                        (origin, paused, 200),
+                    ):
+                        connection.request("POST", "/api/schedule", json.dumps(data), {"Origin": source})
+                        response = connection.getresponse()
+                        self.assertEqual(response.status, status)
+                        response.read()
+                        self.assertEqual(path.exists(), status == 200)
+
+                    self.assertEqual(json.loads(path.read_text(encoding="utf-8")), paused)
+                    connection.request("GET", "/api/schedule")
+                    self.assertEqual(json.load(connection.getresponse()), paused)
+
+                    connection.request("POST", "/api/schedule", '{"enabled": true}', {"Origin": origin})
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    resumed = {"enabled": True, "interval_minutes": 10}
+                    self.assertEqual(json.load(response), resumed)
+                    self.assertEqual(json.loads(path.read_text(encoding="utf-8")), resumed)
+            finally:
+                server.shutdown()
+                worker.join()
+
     def test_price_reads_configured_workbook_on_each_request(self):
         """Проверяет перечитывание изменённого Excel и обработку отсутствующего файла."""
         price_path = self.path.with_suffix(".xlsx")

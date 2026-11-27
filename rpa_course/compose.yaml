@@ -15,6 +15,7 @@ services:
     volumes:
       - ./data:/app/rpa_course/data:ro
       - ofissnab_state:/app/rpa_course/.runtime
+      - ./.runtime/schedule:/app/rpa_course/.runtime/schedule
 
 volumes:
   ofissnab_state:

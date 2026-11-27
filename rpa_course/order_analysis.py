@@ -25,6 +25,7 @@ ambiguous, если подходит несколько товаров, not_foun
 При matched укажи точный артикул sku из каталога. При других match пропусти sku.
 Укажи количество только если оно следует из запроса. Не подставляй число по умолчанию.
 Нормализуй явно указанную или однозначную единицу как «шт.» или «упак.».
+Пачки нормализуй как «упак.».
 Когда нужна другая единица, верни её как есть. Если количество или единица неясны,
 пропусти соответствующее поле. Упаковки и штуки друг в друга не переводятся.
 Если запрошено больше 10 позиций, верни too_many_positions=true и пустой список.
@@ -163,7 +164,7 @@ def validate_and_calculate(raw: str, items: list[str], products: dict[str, Produ
         if sku not in products:
             raise InvalidModelResponse
         written = AMOUNT.search(source)
-        written_unit = {"шт": "шт.", "уп": "упак."}.get(written[2].casefold()[:2]) if written else None
+        written_unit = {"шт": "шт.", "уп": "упак.", "па": "упак."}.get(written[2].casefold()[:2]) if written else None
         written_quantity = Decimal(written[1].replace(",", ".").replace("−", "-")) if written else quantity
         if quantity is None:
             issues.append(Issue("missing_quantity", fragment))
